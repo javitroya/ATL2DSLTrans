@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="ASCII"?>
+<ER:ERModel xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ER="http://er" name="ERModel1">
+  <entities name="ET1">
+    <features xsi:type="ER:Attribute" name="a1" type="String"/>
+    <features xsi:type="ER:StrongReference" name="r1" type="//@entities.1"/>
+  </entities>
+  <entities name="ET2">
+    <features xsi:type="ER:Attribute" name="a2" type="Integer"/>
+    <features xsi:type="ER:WeakReference" name="r2" type="//@entities.0"/>
+  </entities>
+</ER:ERModel>

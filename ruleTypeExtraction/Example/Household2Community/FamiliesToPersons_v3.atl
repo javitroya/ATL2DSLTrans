@@ -1,0 +1,55 @@
+-- @path Household=F2P/Household.ecore
+-- @path Community=F2P/Community.ecore
+
+module Household2Community;
+create OUT : Community from IN : Household;
+
+rule Household2Community {
+	from
+		s: Household!HouseholdRoot
+	to
+		t : Community!CommunityRoot (
+			has <- s.have->collect(f | thisModule.resolveTemp(Tuple{s=f.father,f=f}, 't')),
+			has <- s.have->collect(f | thisModule.resolveTemp(Tuple{s=f.mother,f=f}, 't')),
+			has <- s.have->collect(f | thisModule.resolveTemp(Tuple{s=f.son,f=f}, 't')),
+			has <- s.have->collect(f | thisModule.resolveTemp(Tuple{s=f.daughter,f=f}, 't'))
+		)	
+}
+	
+rule Father2Man {
+	from
+		s : Household!Member, f : Household!Family (f.father = s)
+	to
+		t : Community!Man (
+			fullName <- s.firstName + f.lastName	
+		)
+}
+
+
+rule Mother2Woman {
+	from
+		s : Household!Member, f : Household!Family (f.mother = s)
+	to
+		t : Community!Woman (
+			fullName <- s.firstName + f.lastName	
+		)
+}
+
+rule Son2Man {
+	from
+		s : Household!Member, f : Household!Family (f.son = s)
+	to
+		t : Community!Man (
+			fullName <- s.firstName + f.lastName	
+		)
+}
+
+
+rule Daughter2Woman {
+	from
+		s : Household!Member, f : Household!Family (f.daughter = s)
+	to
+		t : Community!Woman (
+			fullName <- s.firstName + f.lastName	
+		)
+}
