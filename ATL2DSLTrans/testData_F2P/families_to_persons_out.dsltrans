@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<dsltrans:TransformationModel xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:dsltrans="http://dsltrans/2.0">
+  <source xsi:type="dsltrans:FilePort" name="maininput" filePathURI="IN">
+    <metaModelId metaModelURI="-- @path Household=F2P/Household.ecore" metaModelName="Household"/>
+  </source>
+  <source xsi:type="dsltrans:Sequential" name="Household2Community_CreationRule" previousSource="//@source.0">
+    <metaModelId metaModelURI="Community.ecore" metaModelName="Community"/>
+    <hasRule description="Household2Community">
+      <match>
+        <class xsi:type="dsltrans:AnyMatchClass" className="HouseholdRoot" packageName="Household"/>
+      </match>
+      <apply>
+        <class className="CommunityRoot" packageName="Community">
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+      </apply>
+    </hasRule>
+  </source>
+  <source xsi:type="dsltrans:Sequential" name="Father2Man_CreationRule" previousSource="//@source.1">
+    <metaModelId metaModelURI="Community.ecore" metaModelName="Community"/>
+    <hasRule description="Father2Man">
+      <match>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Member" packageName="Household">
+          <attribute attributeName="firstName"/>
+        </class>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Family" packageName="Household">
+          <attribute attributeName="lastName"/>
+        </class>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="father" source="//@source.2/@hasRule.0/@match.0/@class.1" target="//@source.2/@hasRule.0/@match.0/@class.0"/>
+      </match>
+      <apply>
+        <class className="Man" packageName="Community">
+          <attribute attributeName="fullName">
+            <attributeValue xsi:type="dsltrans:Concat">
+              <leftTerm xsi:type="dsltrans:AttributeRef" attributeRef="//@source.2/@hasRule.0/@match.0/@class.0/@attribute.0"/>
+              <rightTerm xsi:type="dsltrans:AttributeRef" attributeRef="//@source.2/@hasRule.0/@match.0/@class.1/@attribute.0"/>
+            </attributeValue>
+          </attribute>
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+      </apply>
+    </hasRule>
+  </source>
+  <source xsi:type="dsltrans:Sequential" name="Mother2Woman_CreationRule" previousSource="//@source.2">
+    <metaModelId metaModelURI="Community.ecore" metaModelName="Community"/>
+    <hasRule description="Mother2Woman">
+      <match>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Member" packageName="Household">
+          <attribute attributeName="firstName"/>
+        </class>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Family" packageName="Household">
+          <attribute attributeName="lastName"/>
+        </class>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="mother" source="//@source.3/@hasRule.0/@match.0/@class.1" target="//@source.3/@hasRule.0/@match.0/@class.0"/>
+      </match>
+      <apply>
+        <class className="Woman" packageName="Community">
+          <attribute attributeName="fullName">
+            <attributeValue xsi:type="dsltrans:Concat">
+              <leftTerm xsi:type="dsltrans:AttributeRef" attributeRef="//@source.3/@hasRule.0/@match.0/@class.0/@attribute.0"/>
+              <rightTerm xsi:type="dsltrans:AttributeRef" attributeRef="//@source.3/@hasRule.0/@match.0/@class.1/@attribute.0"/>
+            </attributeValue>
+          </attribute>
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+      </apply>
+    </hasRule>
+  </source>
+  <source xsi:type="dsltrans:Sequential" name="Son2Man_CreationRule" previousSource="//@source.3">
+    <metaModelId metaModelURI="Community.ecore" metaModelName="Community"/>
+    <hasRule description="Son2Man">
+      <match>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Member" packageName="Household">
+          <attribute attributeName="firstName"/>
+        </class>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Family" packageName="Household">
+          <attribute attributeName="lastName"/>
+        </class>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="son" source="//@source.4/@hasRule.0/@match.0/@class.1" target="//@source.4/@hasRule.0/@match.0/@class.0"/>
+      </match>
+      <apply>
+        <class className="Man" packageName="Community">
+          <attribute attributeName="fullName">
+            <attributeValue xsi:type="dsltrans:Concat">
+              <leftTerm xsi:type="dsltrans:AttributeRef" attributeRef="//@source.4/@hasRule.0/@match.0/@class.0/@attribute.0"/>
+              <rightTerm xsi:type="dsltrans:AttributeRef" attributeRef="//@source.4/@hasRule.0/@match.0/@class.1/@attribute.0"/>
+            </attributeValue>
+          </attribute>
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+      </apply>
+    </hasRule>
+  </source>
+  <source xsi:type="dsltrans:Sequential" name="Daughter2Woman_CreationRule" previousSource="//@source.4">
+    <metaModelId metaModelURI="Community.ecore" metaModelName="Community"/>
+    <hasRule description="Daughter2Woman">
+      <match>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Member" packageName="Household">
+          <attribute attributeName="firstName"/>
+        </class>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Family" packageName="Household">
+          <attribute attributeName="lastName"/>
+        </class>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="daughter" source="//@source.5/@hasRule.0/@match.0/@class.1" target="//@source.5/@hasRule.0/@match.0/@class.0"/>
+      </match>
+      <apply>
+        <class className="Woman" packageName="Community">
+          <attribute attributeName="fullName">
+            <attributeValue xsi:type="dsltrans:Concat">
+              <leftTerm xsi:type="dsltrans:AttributeRef" attributeRef="//@source.5/@hasRule.0/@match.0/@class.0/@attribute.0"/>
+              <rightTerm xsi:type="dsltrans:AttributeRef" attributeRef="//@source.5/@hasRule.0/@match.0/@class.1/@attribute.0"/>
+            </attributeValue>
+          </attribute>
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+      </apply>
+    </hasRule>
+  </source>
+  <source xsi:type="dsltrans:Sequential" name="thasSolveRef" previousSource="//@source.5">
+    <metaModelId metaModelURI="Community.ecore" metaModelName="Community"/>
+    <hasRule description="thasSolveRefHouseholdRootFamilyMemberCommunityRootMan">
+      <match>
+        <class xsi:type="dsltrans:AnyMatchClass" className="HouseholdRoot" packageName="Household"/>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Family" packageName="Household"/>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Member" packageName="Household"/>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="have" source="//@source.6/@hasRule.0/@match.0/@class.0" target="//@source.6/@hasRule.0/@match.0/@class.1"/>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="father" source="//@source.6/@hasRule.0/@match.0/@class.1" target="//@source.6/@hasRule.0/@match.0/@class.2"/>
+      </match>
+      <apply>
+        <class className="CommunityRoot" packageName="Community">
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+        <class className="Man" packageName="Community">
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+        <association associationName="has" source="//@source.6/@hasRule.0/@apply/@class.0" target="//@source.6/@hasRule.0/@apply/@class.1"/>
+      </apply>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.6/@hasRule.0/@apply/@class.0" sourceClass="//@source.6/@hasRule.0/@match.0/@class.0"/>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.6/@hasRule.0/@apply/@class.1" sourceClass="//@source.6/@hasRule.0/@match.0/@class.1"/>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.6/@hasRule.0/@apply/@class.1" sourceClass="//@source.6/@hasRule.0/@match.0/@class.2"/>
+    </hasRule>
+  </source>
+  <source xsi:type="dsltrans:Sequential" name="thasSolveRef" previousSource="//@source.6">
+    <metaModelId metaModelURI="Community.ecore" metaModelName="Community"/>
+    <hasRule description="thasSolveRefHouseholdRootFamilyMemberCommunityRootWoman">
+      <match>
+        <class xsi:type="dsltrans:AnyMatchClass" className="HouseholdRoot" packageName="Household"/>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Family" packageName="Household"/>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Member" packageName="Household"/>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="have" source="//@source.7/@hasRule.0/@match.0/@class.0" target="//@source.7/@hasRule.0/@match.0/@class.1"/>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="mother" source="//@source.7/@hasRule.0/@match.0/@class.1" target="//@source.7/@hasRule.0/@match.0/@class.2"/>
+      </match>
+      <apply>
+        <class className="CommunityRoot" packageName="Community">
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+        <class className="Woman" packageName="Community">
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+        <association associationName="has" source="//@source.7/@hasRule.0/@apply/@class.0" target="//@source.7/@hasRule.0/@apply/@class.1"/>
+      </apply>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.7/@hasRule.0/@apply/@class.0" sourceClass="//@source.7/@hasRule.0/@match.0/@class.0"/>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.7/@hasRule.0/@apply/@class.1" sourceClass="//@source.7/@hasRule.0/@match.0/@class.1"/>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.7/@hasRule.0/@apply/@class.1" sourceClass="//@source.7/@hasRule.0/@match.0/@class.2"/>
+    </hasRule>
+  </source>
+  <source xsi:type="dsltrans:Sequential" name="thasSolveRef" previousSource="//@source.7">
+    <metaModelId metaModelURI="Community.ecore" metaModelName="Community"/>
+    <hasRule description="thasSolveRefHouseholdRootFamilyMemberCommunityRootMan">
+      <match>
+        <class xsi:type="dsltrans:AnyMatchClass" className="HouseholdRoot" packageName="Household"/>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Family" packageName="Household"/>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Member" packageName="Household"/>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="have" source="//@source.8/@hasRule.0/@match.0/@class.0" target="//@source.8/@hasRule.0/@match.0/@class.1"/>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="son" source="//@source.8/@hasRule.0/@match.0/@class.1" target="//@source.8/@hasRule.0/@match.0/@class.2"/>
+      </match>
+      <apply>
+        <class className="CommunityRoot" packageName="Community">
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+        <class className="Man" packageName="Community">
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+        <association associationName="has" source="//@source.8/@hasRule.0/@apply/@class.0" target="//@source.8/@hasRule.0/@apply/@class.1"/>
+      </apply>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.8/@hasRule.0/@apply/@class.0" sourceClass="//@source.8/@hasRule.0/@match.0/@class.0"/>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.8/@hasRule.0/@apply/@class.1" sourceClass="//@source.8/@hasRule.0/@match.0/@class.1"/>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.8/@hasRule.0/@apply/@class.1" sourceClass="//@source.8/@hasRule.0/@match.0/@class.2"/>
+    </hasRule>
+  </source>
+  <source xsi:type="dsltrans:Sequential" name="thasSolveRef" previousSource="//@source.8">
+    <metaModelId metaModelURI="Community.ecore" metaModelName="Community"/>
+    <hasRule description="thasSolveRefHouseholdRootFamilyMemberCommunityRootWoman">
+      <match>
+        <class xsi:type="dsltrans:AnyMatchClass" className="HouseholdRoot" packageName="Household"/>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Family" packageName="Household"/>
+        <class xsi:type="dsltrans:AnyMatchClass" className="Member" packageName="Household"/>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="have" source="//@source.9/@hasRule.0/@match.0/@class.0" target="//@source.9/@hasRule.0/@match.0/@class.1"/>
+        <association xsi:type="dsltrans:PositiveMatchAssociation" associationName="daughter" source="//@source.9/@hasRule.0/@match.0/@class.1" target="//@source.9/@hasRule.0/@match.0/@class.2"/>
+      </match>
+      <apply>
+        <class className="CommunityRoot" packageName="Community">
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+        <class className="Woman" packageName="Community">
+          <attribute attributeName="ApplyAttribute">
+            <attributeValue xsi:type="dsltrans:Atom" value="solveRef"/>
+          </attribute>
+        </class>
+        <association associationName="has" source="//@source.9/@hasRule.0/@apply/@class.0" target="//@source.9/@hasRule.0/@apply/@class.1"/>
+      </apply>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.9/@hasRule.0/@apply/@class.0" sourceClass="//@source.9/@hasRule.0/@match.0/@class.0"/>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.9/@hasRule.0/@apply/@class.1" sourceClass="//@source.9/@hasRule.0/@match.0/@class.1"/>
+      <backwards xsi:type="dsltrans:PositiveBackwardRestriction" targetClass="//@source.9/@hasRule.0/@apply/@class.1" sourceClass="//@source.9/@hasRule.0/@match.0/@class.2"/>
+    </hasRule>
+  </source>
+</dsltrans:TransformationModel>

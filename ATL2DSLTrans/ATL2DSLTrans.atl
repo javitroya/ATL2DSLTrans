@@ -1,0 +1,1434 @@
+module ATL2DSLTrans;
+create OUT : MM_DSLTrans from IN1 : MM_ATL, IN2 : IN_MM, IN3 : OUT_MM, IN4 : MM_DEP;
+
+--**Line 532 must be uncommented for the families2persons case study**--
+
+--******************* Helpers used to retrieve a set of elements (of type OclExpression)********************--	
+helper def : collectAllContainedElements(elms : Sequence(MM_ATL!LocatedElement)) : Set(OclAny) = 
+	if not elms.oclIsTypeOf(Sequence(MM_ATL!LocatedElement))
+	then Set{elms}
+	else elms -> collect(e|MM_ATL!OclExpression.allInstances() -> select(x|x.collectAllContainer().includes(e)).flatten()).flatten()
+    endif
+;
+helper context MM_ATL!LocatedElement def : collectAllContainedElements() : Set(OclAny) = 
+	MM_ATL!OclExpression.allInstances() -> select(x|x.collectAllContainer().includes(self)).flatten();
+
+helper context MM_ATL!LocatedElement def : collectAllContainer() : Set(OclAny) = 
+	Set{self.refImmediateComposite()} -> union(
+		if(self.refImmediateComposite().oclIsUndefined()) 
+		then Set{} 
+		else self.refImmediateComposite().collectAllContainer()
+		endif).flatten() -> reject(x|x.oclIsUndefined());
+--*********************************************************************************************************--
+
+-- This helper returns a sequence with the names of the attributes of the class of the input metamodel of the transformation whose name is the context
+-- Note that we also have to gather those attributes in the superclasses
+helper context String def : attributesInput() : Sequence(String) =
+	IN_MM!EClass.allInstancesFrom('IN2') -> select(c|c.name=self) -> first().getParentClassesInMM() -> 
+		collect(c|c.eStructuralFeatures).flatten() -> select
+			(esf|esf.oclIsTypeOf(IN_MM!EAttribute)) -> collect(esf|esf.name);
+helper context IN_MM!EClass def : getParentClassesInMM() : Set(IN_MM!EClass) =
+	Set{self} -> union(
+		if(self.eSuperTypes.oclIsUndefined())
+		then Set{}
+		else self.eSuperTypes -> collect(e|e.getParentClassesInMM()).flatten()
+		endif).flatten() -> reject(x|x.oclIsUndefined());
+-- This helper returns a sequence with the names of the attributes of the class of the output metamodel of the transformation whose name is the context
+-- Note that we also have to gather those attributes in the superclasses
+helper context String def : attributesOutput() : Sequence(String) =
+	OUT_MM!EClass.allInstancesFrom('IN3') -> select(c|c.name=self) -> first().getParentClassesOutMM() -> 
+		collect(c|c.eStructuralFeatures).flatten() -> select
+			(esf|esf.oclIsTypeOf(OUT_MM!EAttribute)) -> collect(esf|esf.name);
+helper context OUT_MM!EClass def : getParentClassesOutMM() : Set(OUT_MM!EClass) =
+	Set{self} -> union(
+		if(self.eSuperTypes.oclIsUndefined())
+		then Set{}
+		else self.eSuperTypes -> collect(e|e.getParentClassesOutMM()).flatten()
+		endif).flatten() -> reject(x|x.oclIsUndefined());
+	
+--*************************************************************************************************************************************--
+--This helper takes as input a set of OperatorCallExp of type '='' (that appear in the Filter of a Rule) 
+-- as well as two SIPEs of the same rule
+--The helper determines if the '=' corresponds to a pattern of the form sipe1.x = sipe2
+helper def : checkEqualitySIPEsFilter(opCallExprs : Sequence(MM_ATL!OperatorCallExp), sipe1: MM_ATL!SimpleInPatternElement, sipe2: MM_ATL!SimpleInPatternElement) : Boolean = 
+	if (opCallExprs = Sequence{})
+	then false
+	--The following 'e' is the VariableExp representing sipe2 (i.e. whose referredVariable is sipe2) in our example
+	else let e : MM_ATL!VariableExp = opCallExprs->first().arguments -> select(arg|arg.oclIsTypeOf(MM_ATL!VariableExp))->first() in
+	     let n : MM_ATL!NavigationOrAttributeCallExp = MM_ATL!NavigationOrAttributeCallExp.allInstances()->select(noace|noace.appliedProperty=opCallExprs->first())->first() in
+	     --if e.size()>0
+		 if e.referredVariable=sipe1-- n.source.referredVariable=sipe1
+		 then true
+		 else false
+		 endif
+	endif
+;
+--In these two helpers, we look for this pattern, given in expressions of the type sipe1.x = sipe2	     
+--Operator Call Exp -> this representes the "="
+--  Navigation Or Attribute Call Exp -> this represents the "x"
+--    Variable Exp -> This represents the VariableExp of sipe1
+--  Variable Exp -> This represents the VariableExp of sipe2
+	     
+--This helper is similar to the one above, but this one returns the name of the association 'x'
+helper def : associationNameEqualitySIPEsFilter(opCallExprs : Sequence(MM_ATL!OperatorCallExp), sipe1: MM_ATL!SimpleInPatternElement, sipe2: MM_ATL!SimpleInPatternElement) : String = 
+	if (opCallExprs = Sequence{})
+	then false
+	--The following 'e' is the VariableExp representing sipe2 (i.e. whose referredVariable is sipe2) in our example
+	else let e : MM_ATL!VariableExp = opCallExprs->first().arguments -> select(arg|arg.oclIsTypeOf(MM_ATL!VariableExp))->first() in
+		 let n : MM_ATL!NavigationOrAttributeCallExp = MM_ATL!NavigationOrAttributeCallExp.allInstances()->select(noace|noace.appliedProperty=opCallExprs->first())->first() in
+		 if e.referredVariable=sipe1
+		 then n.name
+		 else 'NameNotResolved'
+		 endif
+	endif
+;
+--************************************************************************************************************************--
+--This helper has a VariableExp as context whose referredVariable is the SimpleInPatternElement received as argument.
+--The helper checks if the VariableExp is in a simple expression of type sipe.x, where x is an attribute and not a reference
+helper context MM_ATL!VariableExp def : containsSimpleAttribute(sipe : MM_ATL!SimpleInPatternElement) : Boolean =
+	if not self.appliedProperty.oclIsUndefined()
+	then if self.appliedProperty.oclIsTypeOf(MM_ATL!NavigationOrAttributeCallExp)
+		 then if self.appliedProperty.appliedProperty.oclIsUndefined()
+	     	  then if sipe.type.name.attributesInput() -> includes(self.appliedProperty.name)
+		           then true
+			       else false
+			       endif
+			  else if not self.appliedProperty.appliedProperty.
+			  oclIsTypeOf(MM_ATL!NavigationOrAttributeCallExp)
+			       then if sipe.type.name.attributesInput() -> includes(self.appliedProperty.name)
+		                then true
+			            else false
+			            endif
+			       else false
+				   endif
+			  endif
+		 else false
+		 endif
+	else false
+	endif
+;
+--Helper to check that a VariableExp which is in an expresion of type ve.x is not in a concat
+helper context MM_ATL!VariableExp def : notInConcat() : Boolean =
+	if not self.appliedProperty.oclIsUndefined()
+	then if self.appliedProperty.appliedProperty.oclIsUndefined() and self.appliedProperty.parentOperation.oclIsUndefined()
+	     then true
+		 else false
+		 endif
+	else false
+	endif
+;
+
+--This helper receives a navigation as a sequence of strings in the input model in the form Sequence{'HouseholdRoot', 'have', 'father'}
+--and returns a sequence of strings --with the classes, such as Sequence{'Household', 'Family', 'Member'} for this example
+helper def : getClassesNavigationInput(firstClass : String, nav : Sequence(String)) : Sequence(String) =
+	if nav->size() = 1
+	then if firstClass='EObject' and IN_MM!EClass.allInstancesFrom('IN2') -> select (cl | cl.name = nav->first()) -> notEmpty()
+	     then nav
+		 else let c : IN_MM!EClass = IN_MM!EClass.allInstancesFrom('IN2') -> select(cl | cl.name = if firstClass='EObject' then nav->first() else firstClass endif) -> first() in 
+		      if c.eAllAttributes -> exists(at | at.name = nav->first()) -- The last element is an attribute, so we return nothing
+			  then Sequence{}
+			  else Sequence{c.eAllReferences -> select(r | r.name = nav->first()) -> first().eReferenceType.name} -- We return the type to which the reference points
+			  endif
+		 endif
+	else if nav->size()>1
+	     then if nav->first().isAClassInputModel()
+			  then Sequence{nav->first()} -> union(thisModule.getClassesNavigationInput(nav->first(), nav->subSequence(2,nav->size())))
+			  else let c : IN_MM!EClass = IN_MM!EClass.allInstancesFrom('IN2') -> select(cl | cl.name = firstClass) -> first() in
+			  	   thisModule.getClassesNavigationInput(c.eAllReferences -> select(r | r.name = nav->first()) -> first().eReferenceType.name, 
+			  	   	                                       Sequence{c.eAllReferences -> select(r | r.name = nav->first()) -> first().eReferenceType.name} -> union(nav->subSequence(2,nav->size())))
+			  endif
+		 else Sequence{'This can never happen'}
+		 endif
+ 	endif	
+;
+--This helper receives a navigation as a sequence of strings in the input model in the form Sequence{'HouseholdRoot', 'have', 'father'}
+--and returns a sequence of strings --with the classes, such as Sequence{'Household', 'Family', 'Member'} for this example
+helper def : getClassesNavigationOutput(firstClass : String, nav : Sequence(String)) : Sequence(String) =
+	if nav->size() = 1
+	then let c : OUT_MM!EClass = OUT_MM!EClass.allInstancesFrom('IN3') -> select(cl | cl.name = if firstClass='EObject' then nav->first() else firstClass endif) -> first() in 
+		      if c.eAttributes -> exists(at | at.name = nav->first()) -- The last element is an attribute, so we return nothing
+			  then Sequence{}
+			  else Sequence{c.eAllReferences -> select(r | r.name = nav->first()) -> first().eReferenceType.name} -- We return the type to which the reference points
+			  endif
+	else if nav->size()>1
+	     then if nav->first().isAClassOutputModel()
+			  then Sequence{nav->first()} -> union(thisModule.getClassesNavigationOutput(nav->first(), nav->subSequence(2,nav->size())))
+			  else let c : OUT_MM!EClass = OUT_MM!EClass.allInstancesFrom('IN3') -> select(cl | cl.name = firstClass) -> first() in
+			  	   thisModule.getClassesNavigationOutput(c.eReferences -> select(r | r.name = nav->first()) -> first().eReferenceType.name, 
+			  	   	                                       Sequence{c.eReferences -> select(r | r.name = nav->first()) -> first().eReferenceType.name} -> union(nav->subSequence(2,nav->size())))
+			  endif
+		 else Sequence{'This can never happen'}
+		 endif
+ 	endif	
+;
+
+--Helper that has as content a string representing the name of a class of the input metamodel, and the name of a rule as argument.
+--This helper returns true if the class received as context is accessed through at least one binding in at least one of the
+--rules of the transformation, with the exception of the rule received as argument
+helper context String def : appearsInBindingOfAnotherRule(ruleName : String) : Boolean =
+	MM_DEP!Rule.allInstancesFrom('IN4') -> select(r | r.name <> ruleName) -> 
+	   exists(r | r.outFeatures -> exists(of | self = thisModule.getTypeOfNavigation((of->substring(5,of->size())).separateFeaturesNavigation())))
+;
+--This helper receives a sequence with a navigation and returns the type of the last class navigated.
+--** Ideally, only the first feature is the name of a class; then, the
+--** remaining features in the navigations are EReferences, and the last one can be also
+--** an attribute. Careful: a feature in any part of the sequence can be a class, when it
+--** is the type returned from a helper for example. In that case, we should start the
+--** navigation from that class. 
+--** In the example: 'src_Type.owner.reference.name (where 'reference' is of type 'Reference' and 
+--** 'name' is a string), we should get 'Reference'. If 'name'
+--** was a reference, for example of type 'Name', then we should get 'Name'
+--**Another precaution: in some navigations, the name of a lazy rule can appear in the end,
+--**as well as the name of a reference that has appeared in a binding. For instance:
+--**Sequence {'Partition', 'module', 'scheduler', '_required', 'createPPort'}. If this happens,
+--**we return the type right before the lazy rule or the reference in the select ("Scheduler" in this case)
+helper def : getTypeOfNavigation(navigations : Sequence(String)) : String =
+	--let navigations : Sequence(String) = self.separateFeaturesNavigation() in
+	if navigations -> size() = 1
+	then navigations -> first()
+	else if navigations -> size() = 2 -- Then it can be either Sequence{Class, attribute} or Sequence{Class, reference}
+	     then if MM_ATL!LazyMatchedRule.allInstancesFrom('IN1')->exists(lmr|lmr.name=navigations->at(2)) --We take care of the case of the lazy rule
+		      then navigations -> first()
+			  else let c : IN_MM!EClass = IN_MM!EClass.allInstancesFrom('IN2') -> select(cl | cl.name = navigations->first()) -> first() in 
+		           if c.eAllAttributes -> exists(at | at.name = navigations->at(2)) -- The last element is an attribute, so we return the Class
+			       then navigations -> first()
+			       else c.eAllReferences -> select(r | r.name = navigations->at(2)) -> first().eReferenceType.name -- We return the type to which the reference points
+			       endif
+			  endif
+		 else if navigations -> at(2).substring(1,1)='_' or MM_ATL!LazyMatchedRule.allInstancesFrom('IN1')->exists(lmr|lmr.name=navigations->at(2)) --We take care of the case of the lazy rule or the select
+		 	  then navigations -> first()
+		 	  else if navigations -> at(2).isAClassInputModel()
+		           then thisModule.getTypeOfNavigation(navigations -> subSequence(2, navigations->size()))
+			       else let c : IN_MM!EClass = IN_MM!EClass.allInstancesFrom('IN2') -> select(cl | cl.name = navigations->first())  -> first() in
+			  	   thisModule.getTypeOfNavigation(Sequence{c.eAllReferences -> select(r | r.name = navigations->at(2)) -> first().eReferenceType.name} -> union(navigations->subSequence(3,navigations->size())))
+			       endif
+			 endif
+		 endif
+	endif	
+;
+		 
+--This helper receives a context a string and determines if the string is the name of a class in the metamodel
+helper context String def : isAClassInputModel() : Boolean =
+	if self = (self.substring(1,1).toUpperCase()	+ self->substring(2,self->size()))
+	   and IN_MM!EClass.allInstancesFrom('IN2') -> exists(c | c.name = self)
+	then true
+	else false
+	endif
+;
+--This helper receives a context a string and determines if the string is the name of a class in the metamodel
+helper context String def : isAClassOutputModel() : Boolean =
+	if self = (self.substring(1,1).toUpperCase()	+ self->substring(2,self->size()))
+	   and OUT_MM!EClass.allInstancesFrom('IN3') -> exists(c | c.name = self)
+	then true
+	else false
+	endif
+;
+
+
+--** This helper takes a navigation of the form 'Class.ref.type.name' and stores it
+--** in a Sequence: {Class, ref, type, name} ***********************************--
+helper context String def : separateFeaturesNavigation() : Sequence(String) =
+	if self.indexOf('.') < 1 then
+		Sequence{self}
+	else Sequence{self.substring(1,self.indexOf('.'))} -> union(self.substring(self.indexOf('.')+2, 
+												self.size()).separateFeaturesNavigation()->flatten())
+	endif
+;
+
+--** This helper receives a sequence of strings with a navigation (which is in fact
+--** the output of helper 'separateFeaturesNavigation') and removes all the features
+--** which are before the last class that appears in the sequence. For example, if it
+--** receives {Class, type, reference, Property, name}, it returns {Property, name}
+helper def : navigationFromClass(nav : Sequence(String)) : Sequence(String) =
+	if nav.last().substring(1,1) = nav.last().substring(1,1).toUpperCase()
+	then Sequence{nav.last()}
+	else thisModule.navigationFromClass(nav.subSequence(1,nav.size()-1)) -> append(nav.last())
+	endif
+;
+--**********************************************************************************************--
+--**********************************************************************************************--
+--This helper receives the name of two classes belonging to the input metamodel and a sequence
+--of strings representing a navigation path. It returns a string
+--which contains the name of an association from className1 to className2 which is included in the sequence os strings. If there is no association
+--between the classes, then it returns 'no_association'
+helper def : associationBetweenClassesInput(className1 : String, className2 : String, associations : Sequence(String)) : String =
+	 let c1 : IN_MM!EClass = IN_MM!EClass.allInstancesFrom('IN2') -> select(cl | cl.name = className1) -> first() in
+	   let c2 : IN_MM!EClass = IN_MM!EClass.allInstancesFrom('IN2') -> select(cl | cl.name = className2) -> first() in
+	     let ass : IN_MM!EReference = c1.eAllReferences -> select (r | associations -> includes(r.name)) -> select(r | r.eReferenceType = c2 or c2.eAllSuperTypes->includes(r.eReferenceType)) -> first() in
+		   if (ass.oclIsUndefined())
+		   then 'no_association'
+		   else ass.name
+		   endif
+;
+--This helper receives the name of two classes belonging to the input metamodel and a sequence
+--of strings representing a navigation path. It returns a string
+--which contains the name of an association from className1 to className2 which is included in the sequence os strings. If there is no association
+--between the classes, then it returns 'no_association'
+helper def : associationBetweenClassesOutput(className1 : String, className2 : String, associations : Sequence(String)) : String =
+	 let c1 : OUT_MM!EClass = OUT_MM!EClass.allInstancesFrom('IN3') -> select(cl | cl.name = className1) -> first() in
+	   let c2 : OUT_MM!EClass = OUT_MM!EClass.allInstancesFrom('IN3') -> select(cl | cl.name = className2) -> first() in
+	     let ass : OUT_MM!EReference = c1.eAllReferences -> select (r | associations -> includes(r.name)) -> select(r | r.eReferenceType = c2 or c2.eAllSuperTypes->includes(r.eReferenceType)) -> first() in
+		   if (ass.oclIsUndefined())
+		   then 'no_association'
+		   else ass.name
+		   endif
+;
+	   
+--This Helper receives a Binding as context and calculates the position that the Binding occupies within
+--the whole set of bindings of the rule where the binding is
+helper context MM_ATL!Binding def : calculatePositionBinding() : Integer =
+  let sopes : Sequence(MM_ATL!SimpleOutPatternElement) = self.outPatternElement.outPattern.elements in
+	 sopes -> select(sope | sopes->indexOf(sope) < sopes->indexOf(self.outPatternElement)) -> 
+	 	collect(sope | sope.bindings) -> flatten() -> size() +
+	 self.outPatternElement.bindings -> indexOf(self)
+;
+	  
+--Helper to determine if a class in the output model is abstract
+helper context String def : isAbstractOutput() : String =
+	OUT_MM!EClass.allInstancesFrom('IN3') -> exists(c|c.name = self and c.abstract = true)	
+;
+
+--Helper to determine if a class (whose name is received as parameter) in the output model has children classes
+helper context String def : hasChildrenOutput() : Boolean =
+	OUT_MM!EClass.allInstancesFrom('IN3') -> exists(c | c.abstract = false and c.eAllSuperTypes -> exists(st | st.name = self))	
+;
+
+--These two helpers receive a navigation of a binding in a sequence where the last element is a lazy rule. For instance, let's 
+--suppose they receive Sequence{"PhysicalNode","partition","module","scheduler","_required","createPPort"}, which corresponds
+--to the value part of binding port <- physNode.partition->collect(part | part.module)->flatten()->collect(d|d.scheduler)->flatten()->select(e|e.required->notEmpty())->collect(e|thisModule.createRPort(e)).
+--In such navigation, "_required" represents a select, and "scheduler" is the class of the SIPE for the lazy rule.
+--Thus, the first helper gets the sequence until the class which is the SIPE for the lazy rule, and the second helper
+--returns the remaining sequence. Since the first element in the latter sequence would be a reference, we need to convert
+--it into the class to which the reference points. Consequently, the result of the helpers are:
+--Sequence{"PhysicalNode","partition","module"} and Sequence{"Scheduler", "_required", "createPPort"}
+helper def : getSequenceBeforeLazyRule(nav : Sequence(String)) : Sequence(String) =
+	if nav->at(nav->size()-1).substring(1,1) = '_'
+	then nav->subSequence(1,nav->size()-3)
+	else nav->subSequence(1,nav->size()-2)
+	endif
+;
+helper def : getSequenceAfterLazyRule(nav : Sequence(String)) : Sequence(String) =
+	let cName : String = thisModule.getTypeOfNavigation(thisModule.getSequenceBeforeLazyRule(nav)) in --This contains "Module"
+	let navAfter : Sequence(String) = if nav->at(nav->size()-1).substring(1,1) = '_'    --This contains Sequence{"scheduler", "_required", "createPPort"}
+									  then nav->subSequence(nav->size()-2,nav->size())
+									  else nav->subSequence(nav->size()-1,nav->size())
+									  endif in
+	let c : IN_MM!EClass = IN_MM!EClass.allInstancesFrom('IN2') -> select(cl | cl.name = cName) -> first() in --This contains the class "Module"										  
+	
+	Sequence{c.eAllReferences -> select(r|r.name = navAfter->first()) -> first().eReferenceType.name} ->
+		union(navAfter.subSequence(2,navAfter->size()))
+;
+	
+--New in SoSyM16 version. This helper is used as a global variable to keep an account of the PositiveMatchAssociations created
+--so that the same association is not created more than once
+helper def : CreatedPositiveMatchAssociation : Sequence(Sequence(String)) = Sequence{};	
+	
+--These two helpers are for checking if an association between to classes already exists
+helper def : positiveMatchAssociationAlreadyExists(associations : Sequence(MM_DSLTrans!PositiveMatchAssociation), c : MM_DSLTrans!PositiveMatchClass, c2 : MM_DSLTrans!PositiveMatchClass, s : String) : Boolean =
+	associations -> exists(a | a.source = c and a.target = c2 and a.associationName = s)
+;	
+helper def : applyAssociationAlreadyExists(associations : Sequence(MM_DSLTrans!ApplyAssociation), c : MM_DSLTrans!ApplyClass, c2 : MM_DSLTrans!ApplyClass, s : String) : Boolean =
+	associations -> exists(a | a.source = c and a.target = c2 and a.associationName = s)
+;	
+
+--Helper to keep all the NavigationOrAttributeCallExp from which a MM_DSLTrans!MatchAttribute has been created by unique lazy rule CreateMatchAttribute
+helper def : naces : Sequence(MM_ATL!NavigationOrAttributeCallExp) = Sequence{};
+--Helper to keep all the pairs Binding-Concat, so that the ApplyAttribute created from the Binding has to contain the Concat
+helper def : bindConcat : Sequence(TupleType(a : MM_ATL!Binding, b : MM_DSLTrans!Concat)) = Sequence{};
+
+--Helper to store which ApplyClass are created from which AnyMatchClass, it is for keeping trace
+--and setting the PositiveBackwardRestriction
+helper def : correspondencesMatchApply : Sequence(TupleType(a : String, b : String)) = Sequence{};
+--Helper also to keep trace, but for a very specific case. It is the case of rules Man and Woman in the Families2Persons case study, for instance.
+--Thereby, we need to store which pair of classes plus the reference between them create which class.
+--The sequence is to be read in blocks of four. The first thing is the reference name, the second is the name of the starting class of
+--the reference and the third the class to which it points. The fourth is the name of the class created. 
+helper def : correspondencesPairOfClasses : Sequence(String) = Sequence{};
+
+--New in SoSyM16 version
+--This helper is used to set the proper class of an ApplyClass whenever the obtained class in a navigation
+--is an abstract class. For this, this helper keeps sequences of Tuples. One Tuple is created for each
+--class created in the CreationPhase. The LHS of the tuple is a Sequence with the names of the classes
+--and the associations appearing in the Match part of the created rule, such as
+--Sequence{'Parent', 'Family', 'fathers', 'family'}, and the LHS contains the name of the first class
+--created in such rule in the Apply part, such as 'Man'
+helper def : correspondencesMatchAssociationsApply : Sequence(TupleType(a : Sequence(String), b : String)) = Sequence{};
+
+helper def : isContainedInConcat : Boolean = false;
+helper def : lastProcessedRule : OclAny = OclUndefined;
+
+helper def : amc : Sequence(MM_DSLTrans!AnyMatchClass) = Sequence{};
+
+----New in SoSyM16 version
+----This helper receives a Sequence with classes and associations of the match part of a rule, like
+----Sequence{'Country', 'Family', 'Parent', 'families', 'fathers'} and returns the tuple of
+----thisModule.correspondencesMatchAssociationApply whose LHS has the most elements in common
+----with such sequence
+--helper def : FindClassesWithMoreMatchings(names : Sequence(String)) : TupleType(a : Sequence(String), b : String) =
+--	thisModule.correspondencesMatchAssociationsApply.at(thisModule.Aux_FindClassesWithMoreMatchings (names, 1, 0, 1))	
+--;
+--helper def : Aux_FindClassesWithMoreMatchings (names : Sequence(String), positionMaxMatches : Integer, maxMatches: Integer, position : Integer) : Integer =
+--	if position <= thisModule.correspondencesMatchAssociationsApply.size()
+--	then
+--		let numOfMatches : Integer = thisModule.StringsInCommon(names, thisModule.correspondencesMatchAssociationsApply.at(position).a) in
+--		if numOfMatches > maxMatches
+--		then thisModule.Aux_FindClassesWithMoreMatchings(names, position, numOfMatches, position + 1)
+--		else thisModule.Aux_FindClassesWithMoreMatchings(names, positionMaxMatches, maxMatches, position + 1)
+--		endif
+--	else positionMaxMatches
+--	endif
+--;
+----New in SoSyM16 version. Auxiliary helper to obtain the number of common strings of 
+----two sequences of type String
+--helper def : StringsInCommon(seq1 : Sequence(String), seq2 : Sequence(String)) : Integer =
+--	if (seq1 = Sequence{} or seq2 = Sequence{})
+--	then 0
+--	else if seq2.includes(seq1->first())
+--	     then 1 + thisModule.StringsInCommon (seq1.subSequence(2,seq1.size()), seq2)
+--		 else thisModule.StringsInCommon (seq1.subSequence(2,seq1.size()), seq2)
+--		 endif
+--	endif
+--;
+
+--New in SoSyM16 version.
+--This helper is used to decide which is the appropriate class to be used as ApplyClass whenever
+--the chosen one is abstract.
+--It receives a Sequence with classes and associations of the match part of a rule, like
+--Sequence{'Country', 'Family', 'Parent', 'families', 'fathers'}, and a sequence with the possible
+--classes that we can have as target (i.e., the non-abstract children of the abstract class), 
+--and returns a Sequence(String) containing the possible classes
+helper def : FindClassesWithMoreMatchings(names : Sequence(String), classes : Sequence(String)) : Sequence(String) =
+	thisModule.getClassesNames(thisModule.Aux_FindClassesWithMoreMatchings (names, Sequence{0}, 0, 1,classes))
+;
+helper def : Aux_FindClassesWithMoreMatchings (names : Sequence(String), positionsMaxMatches : Sequence(Integer), maxMatches: Integer, position : Integer, classes : Sequence(String)) : Sequence(Integer) =
+	if position <= thisModule.correspondencesMatchAssociationsApply.size()
+	then if classes->includes(thisModule.correspondencesMatchAssociationsApply.at(position).b)
+	    then
+			let numOfMatches : Integer = thisModule.StringsInCommon(names, thisModule.correspondencesMatchAssociationsApply.at(position).a) in
+			if numOfMatches > maxMatches
+			then thisModule.Aux_FindClassesWithMoreMatchings(names, Sequence{position}, numOfMatches, position + 1,classes)
+			else if numOfMatches = maxMatches
+				 then thisModule.Aux_FindClassesWithMoreMatchings(names, positionsMaxMatches -> append(position), numOfMatches, position + 1 , classes)
+			     else thisModule.Aux_FindClassesWithMoreMatchings(names, positionsMaxMatches, maxMatches, position + 1,classes)
+			     endif
+			endif
+		else thisModule.Aux_FindClassesWithMoreMatchings(names, positionsMaxMatches, maxMatches, position + 1,classes)
+		endif
+	else positionsMaxMatches
+	endif
+;
+--Helper that receives a Sequence(Integer) with positions and returns, from the helper correspondencesMatchAssociationsApply,
+--the Sequence(String) with the classes corresponding to such positions
+helper def : getClassesNames(positions : Sequence(Integer)) : Sequence(String) =
+	if positions.size() = 0
+	then Sequence{}
+	else if positions.size() = 1
+	     then Sequence{thisModule.correspondencesMatchAssociationsApply.at(positions->first()).b}
+		 else Sequence{thisModule.correspondencesMatchAssociationsApply.at(positions->first()).b} -> union(thisModule.getClassesNames(positions.subSequence(2,positions.size())))
+		 endif
+	endif
+;
+--New in SoSyM16 version. Auxiliary helper to obtain the number of common strings of 
+--two sequences of type String
+helper def : StringsInCommon(seq1 : Sequence(String), seq2 : Sequence(String)) : Integer =
+	if (seq1 = Sequence{} or seq2 = Sequence{})
+	then 0
+	else if seq2.includes(seq1->first())
+	     then 1 + thisModule.StringsInCommon (seq1.subSequence(2,seq1.size()), seq2)
+		 else thisModule.StringsInCommon (seq1.subSequence(2,seq1.size()), seq2)
+		 endif
+	endif
+;
+
+-- New in SoSyM16 version. Helper that receives a Sequence(String) and
+-- removes the duplicates in the sequence
+helper def : removeDuplicates(names : Sequence(String)) : Sequence(String) =
+	if names.size() <= 1
+	then names
+	else if names.subSequence(2,names.size()) -> includes (names->first())
+	     then thisModule.removeDuplicates(names.subSequence(2,names.size()))
+		 else Sequence{names->first()} -> union (thisModule.removeDuplicates(names.subSequence(2,names.size())))
+		 endif
+	endif
+;
+		 
+--New in SoSyM16 version. This helper receives the name of a class and an association
+--(the class being the source of the association) of the output model and returns, provided
+--the target class of the association is an abstract class, a sequence with the names of all
+--subclasses of such class.
+helper def : findTargetClassesOutput(source : String, asso : String) : Sequence(String) =
+	let cSource : OUT_MM!EClass = OUT_MM!EClass.allInstancesFrom('IN3') -> select(cl | cl.name = source) -> first() in
+	let a : OUT_MM!EReference = cSource.eAllReferences -> select(r | r.name = asso) -> first() in
+	let cTarget : OUT_MM!EClass = a.eReferenceType in
+	OUT_MM!EClass.allInstancesFrom('IN3') -> select(cl | cl.eAllSuperTypes -> includes(cTarget) and not cl.abstract) -> collect(cl|cl.name)
+;
+
+
+---************************************************************************************************************************************************************************--
+---************************************************************************************************************************************************************************--
+---****************************************************************************RULES***************************************************************************************--
+---************************************************************************************************************************************************************************--
+---************************************************************************************************************************************************************************--
+
+rule CreateTransformationModel {
+	from
+		s : MM_ATL!Module
+	to 
+		t : MM_DSLTrans!TransformationModel (
+			source <- fp,
+			source <- s.elements -> select(x|x.oclIsTypeOf(MM_ATL!MatchedRule)),
+			source <- MM_ATL!Binding.allInstances() 
+		),
+		fp : MM_DSLTrans!FilePort(
+			name <- 'maininput',
+			filePathURI <- s.inModels.first().name,
+			metaModelId <- mmi
+		),
+		mmi: MM_DSLTrans!MetaModelIdentifier(
+			metaModelName <- s.inModels.first().metamodel.name,
+			metaModelURI <- s.commentsBefore
+		)
+	do{ 
+		if(thisModule.lastProcessedRule <> OclUndefined){
+			t.previousSource <- thisModule.lastProcessedRule;
+		}
+		thisModule.lastProcessedRule <- fp;
+	}
+}
+
+rule CreationPhase{
+		from
+		s : MM_ATL!MatchedRule (not s.oclIsTypeOf(MM_ATL!LazyMatchedRule))
+	to 
+		t : MM_DSLTrans!Sequential (
+			metaModelId <- mm,
+			hasRule <- r,
+			name <- s.name + '_CreationRule'
+		),
+		mm : MM_DSLTrans!MetaModelIdentifier(
+			metaModelName <- s.eContainer().outModels.first().metamodel.name,
+			metaModelURI <- s.eContainer().outModels.first().metamodel.name + '.ecore'
+		
+		),
+		r : MM_DSLTrans!Rule(
+			description <- s.name,
+			match <- Sequence{m},
+			apply <- a
+		),
+		m : MM_DSLTrans!MatchModel( -- The match model contains the InPatternElements
+			class <- s.inPattern.elements -> collect (sipe|thisModule.CreateAnyMatchClass(sipe)),
+			--Appart from the AnyMatchClass, we also need to create ExistsMatchClass when there are classes appearing in the Filter of the rule
+			--In the following, we create an ExistsMatchClass for each class that appears in a navigation in the Filter whenever the class is
+			--not the type of any of the SIPEs of the rule
+			class <- let nav : Sequence(String) = MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name=s.name) -> first().inFeatures in  
+						nav -> collect(navig | navig.substring(5,navig->size()).separateFeaturesNavigation()) -> 
+							collect(classes | thisModule.getClassesNavigationInput(classes->first(), classes)).flatten() ->
+								select(c | not s.inPattern.elements -> collect(e | e.type.name) -> includes(c)) -> 
+									collect(c | thisModule.CreateExistsMatchClass(Tuple {a = s.name, b = c}, c))
+			
+		),
+		a : MM_DSLTrans!ApplyModel( -- The apply model contains the OutPatternElements
+			class <- s.outPattern.elements -> collect(sope|thisModule.CreateApplyClass(sope)),
+--			association <- s.outPattern.elements -> collect(sope|sope.bindings) -> flatten() -> select(b| b.value.oclIsTypeOf(MM_ATL!VariableExp)) -> 
+--								select(b | s.outPattern.elements -> includes(b.value.referredVariable)) -> 
+--									collect(b | thisModule.CreateApplyAssociation(b))
+			--This block is for creating ApplyAssociation for bindings of type "binding <- nextElement" or "binding <- Collection{nextElement}", where "nextElement" is of type
+			--VariableExp whose referredVariable is a SOPE of the same rule
+			association <- s.outPattern.elements -> collect(sope|sope.bindings) -> flatten() -> select(b| b.value.collectAllContainedElements() -> append(b.value) ->
+				            select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) -> exists(e|s.outPattern.elements -> includes(e.referredVariable))) -> 
+									collect(b | thisModule.CreateApplyAssociation(b))
+		)	
+	do{ 
+		if(thisModule.lastProcessedRule <> OclUndefined){
+			t.previousSource <- thisModule.lastProcessedRule;
+		}
+		thisModule.lastProcessedRule <- t;
+		
+		
+		for(cmm in m.class -> select(cl|cl.oclIsTypeOf(MM_DSLTrans!AnyMatchClass))){
+			for (cam in a.class){
+				thisModule.correspondencesMatchApply <- thisModule.correspondencesMatchApply -> append(Tuple {a = cmm.className, b = cam.className});
+			}
+		}
+		thisModule.correspondencesMatchApply.debug('correspondencesMatchApply');
+	
+		--The associations in the MatchModel will be created according to the content of the Filter. Thus, we will look,
+		--in the model with the types of the transformation, those types appearing in the Filter. For them, we will look
+		--the appearing relationships and will create the objects to which such relationships point. If the type of the
+		--object is the same as the type of a SIPE, then we create an association to an AnyMatchClass created from the SIPE.
+		--However, if the type of the object is not the type of any SIPE, then the association will point to an 
+		--ExistsMatchClass that we create
+		for(nav in MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name=s.name) -> first().inFeatures){
+			thisModule.navig <- nav.substring(5,nav->size()).separateFeaturesNavigation();
+			thisModule.classes <- thisModule.getClassesNavigationInput(thisModule.navig->first(), thisModule.navig);
+			for (cl in thisModule.classes){
+				if (thisModule.classes -> indexOf(cl) <> thisModule.classes -> size()){
+					thisModule.clNext <- thisModule.classes -> at(thisModule.classes -> indexOf(cl)+1);
+					-- New in SoSyM16 version. In order to avoid the creation of the same association twice:
+					if (not thisModule.CreatedPositiveMatchAssociation -> includes (Sequence{cl,thisModule.clNext,s})){
+						m.association <- m.association -> append(thisModule.CreatePositiveMatchAssociation(cl, thisModule.clNext, thisModule.navig, s));
+						thisModule.CreatedPositiveMatchAssociation <- thisModule.CreatedPositiveMatchAssociation -> append(Sequence{cl,thisModule.clNext,s});
+					}
+					
+				}
+			}
+		}		
+		
+		--In the following we store in thisModule.correspondencesMatchAssociationsApply all the classes and associations among them
+		--that have been created in the Match part; and we also store the first ApplyClass created. 
+		-- For instance, for the Families2Persons_Extended example, for the Father2Man, we
+		--will have Tuple {a = Sequence{'Parent', 'Family', 'family', 'fathers'}, b = 'Man'}.
+		--This will be used to decide the appropriate Apply class when the class obtained in a navigation
+		--in the transformation is actually an abstract one
+		thisModule.aux <- Sequence{};
+		for(pmc in m.class){ -- We store all AnyMatchClass and ExistsMatchClass
+			thisModule.aux <- thisModule.aux -> append(pmc.className);			
+		}
+		for(ass in m.association){ --and now all the associations among such classes
+			thisModule.aux <- thisModule.aux -> append(ass.associationName);			
+		}
+		thisModule.correspondencesMatchAssociationsApply <- thisModule.correspondencesMatchAssociationsApply -> append(Tuple{a = thisModule.aux, b = a.class->first().className});
+	}
+}
+	
+
+
+--This helpers removes the underscores '_' of the String given as context
+helper context String def : removeUnderscores() : String =
+	if self.size() = 1
+	then if self.substring(1,1) = '_'
+	     then ''
+		 else self.substring(1,1)
+		 endif
+	else
+		if self.substring(1,1) = '_'
+		then self.substring(2,self.size()).removeUnderscores()
+		else self.substring(1,1) + self.substring(2,self.size()).removeUnderscores()
+		endif
+	endif
+;
+
+--This helper checks if a barckwardLink already exists between certain classes. It is to be used
+--in the situation where we have two classes with the same name both in the Match part 
+--and in the Apply part, to avoid create more backward links than necessary
+helper def : backwardsLinkAlreadyExists(backwards : Sequence(MM_DSLTrans!PositiveBackwardRestriction), c1 : MM_DSLTrans!PositiveMatchClass, c2 : MM_DSLTrans!ApplyClass) : Boolean = 
+	backwards -> exists(b | b.sourceClass = c1 and b.targetClass.className = c2.className) or
+	backwards -> exists(b | b.sourceClass.className = c1.className and b.targetClass = c2)
+;
+
+--These two helpers are for retrieving the set of subclasses of a class, including the class
+helper context String def : subClassesInput() : Sequence(String) =
+	IN_MM!EClass.allInstancesFrom('IN2') -> select(c | c.eSuperTypes->collect(cl|cl.name) -> includes(self)) -> collect(c|c.name) -> append(self)	
+;
+helper context String def : subClassesOutput() : Sequence(String) =
+	OUT_MM!EClass.allInstancesFrom('IN3') -> select(c | c.eSuperTypes->collect(cl|cl.name) -> includes(self)) -> collect(c|c.name) -> append(self)	
+;
+
+--This rule creates a rule in DSLTrans for every binding which is resolving a reference. Resolving a reference means
+--that the object initialized will point to an object created in another rule. Bindings where a call to a lazy rule
+--is realized in the value part are not considered in this rule. They are treated separately in another matched rule
+rule Binding_Initialization{
+	from 
+		b : MM_ATL!Binding (OUT_MM!EClass.allInstancesFrom('IN3') -> select(c | c.name = b.outPatternElement.type.name) ->first().eAllReferences --in the eAllReferences, also references of super types are considered
+			 -> exists(ref | ref.name = b.propertyName.debug('Binding Name')) --It is a binding containing a reference
+			  and b.value.collectAllContainedElements() -> append(b.value).flatten() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) ->
+			  		select(e | e.referredVariable.oclIsTypeOf(MM_ATL!SimpleOutPatternElement)) -> size()=0 --and the reference does not refer to another sope 
+			  and b.value.collectAllContainedElements() -> append(b.value).flatten() -> select(e|e.oclIsTypeOf(MM_ATL!OperationCallExp)) ->
+			  		select(e | MM_ATL!LazyMatchedRule.allInstances() -> collect(lmr|lmr.name) -> includes(e.operationName)) -> size()=0 --and there is no call to a Lazy rule in the value part of the Binding		
+			  and b.outPatternElement.outPattern.rule.oclIsTypeOf(MM_ATL!MatchedRule) -- and the rule where the binding is is a MatchedRule	
+		) 
+	using{ --I am supposing that bindingFeatures and outFeatures in 'IN4' have the same number of strings, so that an element in
+		   --bindingFeatures represents the left-hand side of a binding whose right-hand side is represented by the element in
+		   --outFeatures in the same position
+		bf : String = MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name = b.outPatternElement.outPattern.rule.name) ->first().
+				--bindingFeatures -> at(b.outPatternElement.bindings -> indexOf(b)).debug('bf');
+				bindingFeatures -> at(b.calculatePositionBinding()).debug('Binding Feature: ');
+		of : String = MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name = b.outPatternElement.outPattern.rule.name) ->first().
+				--outFeatures -> at(b.outPatternElement.bindings -> indexOf(b)).debug('of');
+				outFeatures -> at(b.calculatePositionBinding()).debug('Out Feature: ');
+	}
+	to
+		t : MM_DSLTrans!Sequential (
+			metaModelId <- mm,
+			hasRule <- r,
+			name <- b.outPatternElement.varName + b.propertyName + 'SolveRef'
+		),
+		mm : MM_DSLTrans!MetaModelIdentifier(
+			metaModelName <- b.outPatternElement.outPattern.rule.eContainer().outModels.first().metamodel.name,
+			metaModelURI <- b.outPatternElement.outPattern.rule.eContainer().outModels.first().metamodel.name + '.ecore'
+		),
+		r : MM_DSLTrans!Rule(
+			description <- b.outPatternElement.varName + b.propertyName + 'SolveRef',
+			match <- m,
+			apply <- a
+		),
+		m : MM_DSLTrans!MatchModel(
+			--SoSyM16 version: we remove duplicates in order not to have the same class more than once
+			class <- thisModule.removeDuplicates(thisModule.getClassesNavigationInput('EObject', of.substring(5,of->size()).separateFeaturesNavigation())) -> collect(cl|thisModule.CreateAnyMatchClassFromName(cl))
+		),
+		a : MM_DSLTrans!ApplyModel(
+			class <- thisModule.getClassesNavigationOutput('EObject', bf.substring(5, bf->size()).separateFeaturesNavigation()) -> collect(cl|thisModule.CreateApplyClassFromName(cl))	
+		)
+	do{
+		for (c in m.class){
+			for (c2 in m.class){
+				--We check if there is an association in the inputMM between c and c2, which must be included in the navigations
+				--of 'of'. If there is such an association, then we create a PositiveMatchAssociation with such association between such classes
+				if (c <> c2 and thisModule.associationBetweenClassesInput(c.className, c2.className, of.substring(5,of->size()).separateFeaturesNavigation()) <> 'no_association'){
+					if (not thisModule.positiveMatchAssociationAlreadyExists(m.association,c2,c,thisModule.associationBetweenClassesInput(c.className, c2.className, of.substring(5,of->size()).separateFeaturesNavigation()))){ --We check if the association does not exist already in the other sense. This is to avoid double associations between classes of the same type
+					    m.association <- m.association -> append(thisModule.CreatePositiveMatchAassociation(c,c2,thisModule.associationBetweenClassesInput(c.className, c2.className, of.substring(5,of->size()).separateFeaturesNavigation())));
+					}
+				}
+			}
+		}		
+		for (c in a.class){
+			for (c2 in a.class){
+				--We check if there is an association in the outputMM between c and c2, which must be included in the navigations
+				--of 'bf'. If there is such an association, then we create an ApplyAssociation with such association between such classes
+				if (c <> c2 and thisModule.associationBetweenClassesOutput(c.className, c2.className, bf.substring(5,bf->size()).separateFeaturesNavigation()) <> 'no_association'){
+					if (not thisModule.applyAssociationAlreadyExists(a.association,c2,c,thisModule.associationBetweenClassesOutput(c.className, c2.className, of.substring(5,of->size()).separateFeaturesNavigation()))){ --We check if the association does not exist already in the other sense. This is to avoid double associations between classes of the same type
+					    a.association <- a.association -> append(thisModule.CreateApplyAassociation(c,c2,thisModule.associationBetweenClassesOutput(c.className, c2.className, bf.substring(5,bf->size()).separateFeaturesNavigation())));
+					}
+				}
+			}
+		}
+		--If an ApplyClass representing an abstract class has been created, we need to choose a concrete one.
+		--This is for the specific case of the Families2Persons case study where a Person can be a Man or a Woman. To know which one it is,
+		--we look in the correspondencesPairOfClasses for the name of the association that must have been created in the m.association above 
+--		for (c in a.class){
+--			if (c.className.isAbstractOutput() and not m.association -> isEmpty()){
+--				c.className <- thisModule.correspondencesPairOfClasses -> at(thisModule.correspondencesPairOfClasses -> indexOf(m.association->last().associationName) + 3);
+--			}
+--		}
+		
+		--New in SoSyM16 version.
+		--If an ApplyClass representing an abstract class has been created, we need to choose a concrete one.
+		--Besides, it may happen that we need more than one, such as with TownHall.workers in F2P_Extended, where we
+		--need to have both Man and Woman.
+		thisModule.auxClasses <- Sequence{}; -- This will keep the extra ApplyClasses created		
+		thisModule.auxAssociations <- Sequence{}; -- This will keep the extra ApplyAssociation created
+		for (c in a.class){
+			-- In the condition below, let us check that we're not dealing with a copy transformation. If we are,
+			-- we have to ignore the cases when an abstract class is in the Apply part but a class with the same
+			-- name is also in the Match part
+			if (c.className.isAbstractOutput() and not m.association -> isEmpty() and c.className.hasChildrenOutput()
+					and not m.class -> exists(cls|cls.className = c.className)){
+				thisModule.aux <- Sequence{};
+				for (cl in m.class){
+					thisModule.aux <- thisModule.aux -> append(cl.className);
+				}
+				for (asso in m.association){
+					thisModule.aux <- thisModule.aux -> append(asso.associationName);
+				}
+				thisModule.asso <- a.association -> select(asso|asso.target = c) -> first();
+				c.className.debug('Class Name');
+				--The next variable contains the class(es) that must replace the abstract class
+				thisModule.classes <- thisModule.FindClassesWithMoreMatchings(thisModule.aux,thisModule.findTargetClassesOutput(thisModule.asso.source.className,thisModule.asso.associationName));
+				--If there is only one class, it is fine, we simply replace the name of the class:
+				if(thisModule.classes.size() = 1){
+					c.className <- thisModule.classes -> first();
+				--but if there are more than one, it means we have to create more ApplyClasses and Associations in the Apply part,
+				--such as for the TownHall.workers case of the F2P_Extended, where we need a class for Man and one for Woman
+				} else if(thisModule.classes.size() > 1){
+					c.className <- thisModule.classes -> first();
+					for (cls in thisModule.classes.subSequence(2,thisModule.classes.size())){
+						thisModule.auxClass <- thisModule.CreateApplyClassFromName(cls);
+						thisModule.auxClasses <- thisModule.auxClasses -> append(thisModule.auxClass);
+						thisModule.auxAssociations <- thisModule.auxAssociations -> append(thisModule.CreateApplyAassociation(thisModule.asso.source, thisModule.auxClass, thisModule.asso.associationName));
+					}
+					
+				}
+			}
+		}
+		--The new elements must be included after the loop:
+		a.class <- a.class -> union(thisModule.auxClasses);
+		a.association <- a.association -> union(thisModule.auxAssociations);		
+		
+		
+		--Finally, we have to set the PositiveBackwardRestriction
+		for (amc in m.class){
+			for (ac in a.class){
+				if (thisModule.correspondencesMatchApply -> exists(t | t = Tuple{a = amc.className, b = ac.className})
+						or thisModule.correspondencesMatchApply -> 
+						    exists(t | amc.className.subClassesInput() -> includes(t.a) and ac.className.subClassesOutput() -> includes(t.b))){ --We also check for the subclasses to establish the barckward links
+					if (not thisModule.backwardsLinkAlreadyExists(r.backwards, amc, ac)){ --We check that a backwards link between two classes with the same name has not been already set
+						r.backwards <- r.backwards -> append(thisModule.CreateBackwardsLink(amc, ac));
+					}
+				}
+			}
+		}
+		--For the rule name:
+		for (amc in m.class){
+			r.description <- r.description + amc.className;
+		}
+		for (ac in a.class){
+			r.description <- r.description + ac.className;
+		}
+		--Final pass to remove underscores from the description of the rule
+		r.description <- r.description.removeUnderscores();
+		--For the sequence of rules:
+		if(thisModule.lastProcessedRule <> OclUndefined){
+			t.previousSource <- thisModule.lastProcessedRule;
+		}
+		thisModule.lastProcessedRule <- t;
+	}
+}
+
+helper def : bindings : Sequence(MM_ATL!Binding) = Sequence{};
+
+--This rule creates a rule in DSLTrans for every binding which is resolving a reference. Resolving a reference means
+--that the object initialized will point to an object created in another rule. This rule only considers those bindings 
+--where a call to a lazy rule is realized in the value part. Specifically, we are only considering the case where the
+--lazy rule is the last thing in the navigation (as it is normally the case). For instance, we can have this binding:
+--port <- physNode.partition->collect(part | part.module)->flatten()->collect(d|d.scheduler)->flatten()->select(e|e.required->notEmpty())->collect(e|thisModule.createRPort(e))
+--In this case, the variable "bf" will have the value "trg_CompositionType.port", while "of" will have the value
+--"src_PhysicalNode.partition.module.scheduler._required.createPPort". In such a case, the "required" reference appears within
+--a select, that is why it is represented with "_" before the name. By this, we know that this is the same as if the reference
+--appeared in the filter part of the lazy rule.
+--Now, he separate "of" into "of1" and "of2" in order to know which classes participate in the lazy rule
+rule Binding_Initialization_Lazy_Rule{
+	from 
+		b : MM_ATL!Binding (OUT_MM!EClass.allInstancesFrom('IN3') -> select(c | c.name = b.outPatternElement.type.name) ->first().eAllReferences --in the eAllReferences, also references of super types are considered
+			 -> exists(ref | ref.name = b.propertyName) --It is a binding containing a reference
+			  and b.value.collectAllContainedElements() -> append(b.value).flatten() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) ->
+			  		select(e | e.referredVariable.oclIsTypeOf(MM_ATL!SimpleOutPatternElement)) -> size()=0 --and the reference does not refer to another sope 
+			  and b.value.collectAllContainedElements() -> append(b.value).flatten() -> select(e|e.oclIsTypeOf(MM_ATL!OperationCallExp)) ->
+			  		select(e | MM_ATL!LazyMatchedRule.allInstances() -> collect(lmr|lmr.name) -> includes(e.operationName)) -> size()>0 --and THERE IS a call to a Lazy rule in the value part of the Binding		
+		) 
+	using{ --I am supposing that bindingFeatures and outFeatures in 'IN4' have the same number of strings, so that an element in
+		   --bindingFeatures represents the left-hand side of a binding whose right-hand side is represented by the element in
+		   --outFeatures in the same position
+		bf : String = MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name = b.outPatternElement.outPattern.rule.name) ->first().
+				bindingFeatures -> at(b.calculatePositionBinding()).debug('bf_Binding_Initialization_Lazy_Rule: ');
+		of : String = MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name = b.outPatternElement.outPattern.rule.name) ->first().
+				outFeatures -> at(b.calculatePositionBinding()).debug('of_Binding_Initialization_Lazy_Rule: ');
+		--For the example described above, "of1" will contain Sequence{"PhysicalNode", "partition", "module"}
+		of1 : Sequence(String) = thisModule.getSequenceBeforeLazyRule(MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name = b.outPatternElement.outPattern.rule.name) -> first().
+				outFeatures -> at(b.calculatePositionBinding()).substring(5,of->size()).separateFeaturesNavigation()).debug('of1_Binding_Initialization_Lazy_Rule');
+		--For the example described above, "of2" will contain Sequence{"Scheduler", "_required", "createPPort"}
+		of2 : Sequence(String) = thisModule.getSequenceAfterLazyRule(MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name = b.outPatternElement.outPattern.rule.name) -> first().
+				outFeatures -> at(b.calculatePositionBinding()).substring(5,of->size()).separateFeaturesNavigation()).debug('of2_Binding_Initialization_Lazy_Rule');
+		--This variable is for keeping the lazy rule appearing in the navigation
+		lr : MM_ATL!LazyMatchedRule = MM_ATL!LazyMatchedRule.allInstances() -> select(lmr | 
+			MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name = b.outPatternElement.outPattern.rule.name) -> first().
+				outFeatures -> at(b.calculatePositionBinding()).substring(5,of->size()).separateFeaturesNavigation() -> last() = lmr.name) -> first().debug('lazy rule');
+		
+		--New in SoSyM16 version. This is for keeping those bindings that represent references of the lazy rule appearing in the above navigation.
+		--For now, we only take the first of these bindings.
+		bindLazy : Sequence(MM_ATL!Binding) = let bindings : Sequence(MM_ATL!Binding) = lr.outPattern.elements -> collect(e|e.bindings) -> flatten() in
+				bindings -> select(bind|OUT_MM!EClass.allInstancesFrom('IN3') -> select(c | c.name = bind.outPatternElement.type.name) -> first().eAllReferences --in the eAllReferences, also references of super types are considered
+					-> exists(ref | ref.name = bind.propertyName) --It is a binding containing a reference
+					and bind.value.collectAllContainedElements() -> append(bind.value).flatten() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) ->
+						select(e | e.referredVariable.oclIsTypeOf(MM_ATL!SimpleOutPatternElement)) -> size()=0 -- and the reference does not refer to another sope
+					and bind.value.collectAllContainedElements() -> append(bind.value).flatten() -> select(e|e.oclIsTypeOf(MM_ATL!OperationCallExp)) ->
+						select(e | MM_ATL!LazyMatchedRule.allInstances() -> collect(lmr|lmr.name) -> includes(e.operationName)) -> size()=0)->first() --and there is not call to a lazy rule in the value part of the Binding
+			;
+		bfLazy : String = if bindLazy.oclIsUndefined() then '' else MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name = lr.name) -> first().
+				bindingFeatures -> at(bindLazy.calculatePositionBinding()) endif;
+		ofLazy : String = if bindLazy.oclIsUndefined() then '' else  MM_DEP!Rule.allInstancesFrom('IN4') -> select(r|r.name = lr.name) -> first().
+				outFeatures -> at(bindLazy.calculatePositionBinding()) endif;	
+	}
+	to
+		t : MM_DSLTrans!Sequential (
+			metaModelId <- mm,
+			hasRule <- r,
+			name <- b.outPatternElement.varName + b.propertyName + 'SolveRef'
+		),
+		mm : MM_DSLTrans!MetaModelIdentifier(
+			metaModelName <- b.outPatternElement.outPattern.rule.eContainer().outModels.first().metamodel.name,
+			metaModelURI <- b.outPatternElement.outPattern.rule.eContainer().outModels.first().metamodel.name + '.ecore'
+		),
+		r : MM_DSLTrans!Rule(
+			description <- b.outPatternElement.varName + b.propertyName + 'SolveRef',
+			match <- m,
+			apply <- a
+		),
+		m : MM_DSLTrans!MatchModel(
+			--We need the classes in of1 (appearing in the binding) and those in of2 (representing the input of the lazy rule)
+			class <- thisModule.getClassesNavigationInput('EObject', of1) -> collect(cl|thisModule.CreateAnyMatchClassFromName(cl)),
+			--We also need those classes of of2 (i.e., the classes of the lazy rule plus those in the select, which is as if they were in the filter part of a rule)
+			class <- of2.subSequence(1,of2->size()-1) -> collect(cl | thisModule.CreateAnyMatchClassFromNameLazyRule(lr, cl)),
+			class <- if of2 -> exists(o | o.substring(1,1) = '_') --An ExistsMatchClass needs to be created
+			         then thisModule.CreateExistsMatchClassFromNameLazyRule(lr, of2.subSequence(1,of2->size()-1))
+					 else Sequence{}
+					 endif,
+			--New in SoSyM16 version
+		 	--Finally, if there is a binding with a reference in the lazy rule, we also include it
+			class <- if bindLazy.oclIsUndefined()
+					 then Sequence{}
+					 else thisModule.removeDuplicates(thisModule.getClassesNavigationInput('EObject', ofLazy.substring(5,ofLazy->size()).separateFeaturesNavigation())) 
+					 				-> select(cl|cl <> lr.inPattern.elements->first().type.name) -> collect(cl|thisModule.CreateAnyMatchClassFromName(cl))
+					 endif
+		),
+		a : MM_DSLTrans!ApplyModel(
+			--In the bindingFeatures we will have something in the form "trg_CompositionType.port". Now, we want to create an ApplyClass
+			--for "CompositionType" from such name. However, for "port", instead of obtaining it from this navigation, we create it from
+			--the sopes of the lazy rule
+			--class <- thisModule.getClassesNavigationOutput('EObject', bf.substring(5, bf->size()).separateFeaturesNavigation()) -> collect(cl|thisModule.CreateApplyClassFromName(cl))	
+			class <- thisModule.CreateApplyClassFromName(bf.substring(5, bf->size()).separateFeaturesNavigation() -> first()),
+			--The following classes are for the sopes produced by the lazy rule
+			class <- lr.outPattern.elements -> collect(sope | thisModule.CreateApplyClass(sope)),
+			--New in SoSyM16 version
+			--Finally, if there is a binding with a reference in the lazy rule, we also take it into account
+			class <- if bindLazy.oclIsUndefined()
+					 then Sequence{}
+					 else thisModule.getClassesNavigationOutput('EObject', bfLazy.substring(5, bfLazy->size()).separateFeaturesNavigation()) 
+								-> select(cl|not lr.outPattern.elements -> collect(sope|sope.type.name) -> includes(cl)) -> collect(cl|thisModule.CreateApplyClassFromName(cl))
+					 endif
+		)
+	do{		
+		for (c in m.class){
+			for (c2 in m.class){
+				--We check if there is an association in the inputMM between c and c2, which must be included in the navigations
+				--of 'of'. If there is such an association, then we create a PositiveMatchAssociation with such association between such classes.
+				--Careful, now we have to remove the '_' from navigations such as "_require", and we also delete the navigation representing the lazy rule
+				if (thisModule.associationBetweenClassesInput(c.className, c2.className, of.substring(5,of->size()).separateFeaturesNavigation() -> collect(e|if e.substring(1,1)='_' then e.substring(2,e.size()) else e endif) -> subSequence(1,of.substring(5,of->size()).separateFeaturesNavigation()->size()-1)) <> 'no_association'){
+					m.association <- m.association -> append(thisModule.CreatePositiveMatchAassociation(c,c2,thisModule.associationBetweenClassesInput(c.className, c2.className, of.substring(5,of->size()).separateFeaturesNavigation() -> collect(e|if e.substring(1,1)='_' then e.substring(2,e.size()) else e endif) -> subSequence(1,of.substring(5,of->size()).separateFeaturesNavigation()->size()-1))));
+				}
+				--New in SoSyM16 version. Now, we also have to take into account the classes created from the binding with reference in the lazy rule
+				if (not bindLazy.oclIsUndefined()){
+					if (c <> c2 and thisModule.associationBetweenClassesInput(c.className, c2.className, ofLazy.substring(5,ofLazy->size()).separateFeaturesNavigation()) <> 'no_association'){
+						if (not thisModule.positiveMatchAssociationAlreadyExists(m.association,c2,c,thisModule.associationBetweenClassesInput(c.className, c2.className, ofLazy.substring(5,ofLazy->size()).separateFeaturesNavigation()))){ --We check if the association does not exist already in the other sense. This is to avoid double associations between classes of the same type
+					    	m.association <- m.association -> append(thisModule.CreatePositiveMatchAassociation(c,c2,thisModule.associationBetweenClassesInput(c.className, c2.className, ofLazy.substring(5,ofLazy->size()).separateFeaturesNavigation())));
+						}
+					}
+				}
+			}
+		}		
+		for (c in a.class){
+			for (c2 in a.class){
+				--We check if there is an association in the outputMM between c and c2, which must be included in the navigations
+				--of 'bf'. If there is such an association, then we create a PositiveMatchAssociation with such association between such classes
+				if (thisModule.associationBetweenClassesOutput(c.className, c2.className, bf.substring(5,bf->size()).separateFeaturesNavigation()) <> 'no_association'){
+					a.association <- a.association -> append(thisModule.CreateApplyAassociation(c,c2,thisModule.associationBetweenClassesOutput(c.className, c2.className, bf.substring(5,bf->size()).separateFeaturesNavigation())));
+				}
+				--New in SoSyM16 version. Now, we also have to take into account the classes created from the binding with reference in the lazy rule
+				if (not bindLazy.oclIsUndefined()){
+					if (c <> c2 and thisModule.associationBetweenClassesOutput(c.className, c2.className, bfLazy.substring(5,bfLazy->size()).separateFeaturesNavigation()) <> 'no_association'){
+						if (not thisModule.applyAssociationAlreadyExists(a.association,c2,c,thisModule.associationBetweenClassesOutput(c.className, c2.className, ofLazy.substring(5,ofLazy->size()).separateFeaturesNavigation()))){ --We check if the association does not exist already in the other sense. This is to avoid double associations between classes of the same type
+						    a.association <- a.association -> append(thisModule.CreateApplyAassociation(c,c2,thisModule.associationBetweenClassesOutput(c.className, c2.className, bfLazy.substring(5,bfLazy->size()).separateFeaturesNavigation())));
+						}
+					}
+				}
+			}
+		}
+		
+		--New in SoSyM16 version.
+		--If an ApplyClass representing an abstract class has been created, we need to choose a concrete one.
+		--Besides, it may happen that we need more than one, such as with TownHall.workers in F2P_Extended, where we
+		--need to have both Man and Woman.
+		thisModule.auxClasses <- Sequence{}; -- This will keep the extra ApplyClasses created		
+		thisModule.auxAssociations <- Sequence{}; -- This will keep the extra ApplyAssociation created
+		for (c in a.class){
+			if (c.className.isAbstractOutput() and not m.association -> isEmpty()){
+				thisModule.aux <- Sequence{};
+				for (cl in m.class){
+					thisModule.aux <- thisModule.aux -> append(cl.className);
+				}
+				for (asso in m.association){
+					thisModule.aux <- thisModule.aux -> append(asso.associationName);
+				}
+				thisModule.asso <- a.association -> select(asso|asso.target = c) -> first();
+				
+				--The next variable contains the class(es) that must replace the abstract class
+				thisModule.classes <- thisModule.FindClassesWithMoreMatchings(thisModule.aux,thisModule.findTargetClassesOutput(thisModule.asso.source.className,thisModule.asso.associationName));
+				--If there is only one class, it is fine, we simply replace the name of the class:
+				if(thisModule.classes.size() = 1){
+					c.className <- thisModule.classes -> first();
+				--but if there are more than one, it means we have to create more ApplyClasses and Associations in the Apply part,
+				--such as for the TownHall.workers case of the F2P_Extended, where we need a class for Man and one for Woman
+				} else if(thisModule.classes.size() > 1){
+					c.className <- thisModule.classes -> first();
+					for (cls in thisModule.classes.subSequence(2,thisModule.classes.size())){
+						thisModule.auxClass <- thisModule.CreateApplyClassFromName(cls);
+						thisModule.auxClasses <- thisModule.auxClasses -> append(thisModule.auxClass);
+						thisModule.auxAssociations <- thisModule.auxAssociations -> append(thisModule.CreateApplyAassociation(thisModule.asso.source, thisModule.auxClass, thisModule.asso.associationName));
+					}
+					
+				}
+			}
+		}
+		--The new elements must be included after the loop:
+		a.class <- a.class -> union(thisModule.auxClasses);
+		a.association <- a.association -> union(thisModule.auxAssociations);
+
+		--Finally, we have to set the PositiveBackwardRestriction
+		for (amc in m.class){
+			for (ac in a.class){
+				if (thisModule.correspondencesMatchApply -> exists(t | t = Tuple{a = amc.className, b = ac.className})){				
+					r.backwards <- r.backwards -> append(thisModule.CreateBackwardsLink(amc, ac));	
+				}
+			}
+		}		
+		
+		--For the rule name:
+		for (amc in m.class){
+			r.description <- r.description + amc.className;
+		}
+		for (ac in a.class){
+			r.description <- r.description + ac.className;
+		}
+		--Final pass to remove underscores from the description of the rule
+		r.description <- r.description.removeUnderscores();
+		--For the sequence of rules:
+		if(thisModule.lastProcessedRule <> OclUndefined){
+			t.previousSource <- thisModule.lastProcessedRule;
+		}
+		thisModule.lastProcessedRule <- t;
+	}
+}
+
+
+
+---************************************************************************************************************************************************************************--
+---************************************************************************************************************************************************************************--
+---************************************************************************LAZY RULES***************************************************************************************--
+---************************************************************************************************************************************************************************--
+---************************************************************************************************************************************************************************--
+
+--This rule receives two string with the names of two consecutive classes that are part of a navigation in the Filter,
+--such as 'PhysicalNode' and 'Partition',
+--plus a sequence containing the navigation in the form Sequence{'PhysicalNode', 'partition', 'module'}. It also
+--receives the ATL rule where the Filter is.
+--The rule creates an association, whose type must be in the sequence "navig", between the two classes.
+--If the name of the classes correspond to the name of the type of one of the SIPEs in the rule, then the class
+--(which is the source or target of the association) must have been created as an AnyMatchClass from the SIPE.
+--However, if the name of the class does not correspond to the name of any type of the SIPEs in the rule,
+--then it must be an ExistsMatchClass
+lazy rule CreatePositiveMatchAssociation{
+	from
+		s1 : String,
+		s2 : String,
+		navig : Sequence(String),
+		r : MM_ATL!MatchedRule
+	to
+		pma : MM_DSLTrans!PositiveMatchAssociation(
+			source <- if (r.inPattern.elements -> exists(sipe|sipe.type.name = s1))
+				      then thisModule.CreateAnyMatchClass(r.inPattern.elements -> select(sipe|sipe.type.name = s1) -> first())
+					  else thisModule.CreateExistsMatchClass(Tuple{a=r.name,b=s1}, s1)
+					  endif,
+			target <- if (r.inPattern.elements -> exists(sipe|sipe.type.name = s2))
+				      then thisModule.CreateAnyMatchClass(r.inPattern.elements -> select(sipe|sipe.type.name = s2) -> first())
+					  else thisModule.CreateExistsMatchClass(Tuple{a=r.name,b=s2}, s2)
+					  endif,
+			associationName <- thisModule.associationBetweenClassesInput(s1, s2, navig)
+		)
+	do{
+		--In case when rule r has two sipes, whose names are s1 and s2, we need to keep the trace of the object created from these objects.
+		--An example is the rules Father2Man and Mother2Woman of the Families2Persons case study
+		if (r.inPattern.elements -> exists(sipe|sipe.type.name=s1) and r.inPattern.elements -> exists(sipe|sipe.type.name=s2)){
+			thisModule.correspondencesPairOfClasses <- thisModule.correspondencesPairOfClasses ->
+				union(Sequence{pma.associationName, s1, s2, r.outPattern.elements->first().type.name});
+		}
+	}
+}
+
+--Apparently, the UNIQUE lazy rule assigns the same element when the first SIPE is the same. For this reason,
+--we have as first SIPE a tuple with the pair RuleName-ClassName
+unique lazy rule CreateExistsMatchClass{
+	from 
+		t : TupleType(a : String, b : String),
+		s : String
+	to
+		emc : MM_DSLTrans!ExistsMatchClass(
+			className <- s,
+			packageName <- IN_MM!EPackage.allInstancesFrom('IN2') -> select(p|p.eClassifiers -> contains(
+				IN_MM!EClass.allInstancesFrom('IN2') -> select(c|c.name=s) -> first() )) -> first().name,
+			--New in SoSyM'16 version. If there is a binding that it is accessing an attribute in the
+			--class representing the ExistsMatchClass, such as in s.family.lastName, we have to create a
+			--MatchAttribute																												getTypeOfNavigation((of->substring(5,of->size())).separateFeaturesNavigation()))
+			attribute <- let nav:Sequence(String) = MM_DEP!Rule.allInstancesFrom('IN4') -> select(r | r.name = t.a) -> first().outFeatures -> select(n | thisModule.getTypeOfNavigation(n->substring(5,n->size()).separateFeaturesNavigation()) = s) -> first() in
+			if nav.oclIsUndefined()
+			then Sequence{}
+			--else Sequence{thisModule.CreateMatchAttributeinExistsMatchClass(Tuple{a = thisModule.getTypeOfNavigation(nav->substring(5,nav->size()).separateFeaturesNavigation()), b = nav.separateFeaturesNavigation().last()}, t.a)}
+			else Sequence{thisModule.CreateMatchAttributeinExistsMatchClass(Tuple{a = t.a, b = nav.separateFeaturesNavigation().last()})}
+			endif
+		)
+}
+
+--This rule receives a Binding of type "binding <- nextElement" or "binding <- Collection{nextElement}", where "nextElement" is of type
+--VariableExp whose referredVariable is a SOPE of the same rule
+lazy rule CreateApplyAssociation{
+	from
+		b : MM_ATL!Binding
+	to
+		aa : MM_DSLTrans!ApplyAssociation(
+			source <- thisModule.CreateApplyClass(b.outPatternElement),
+			--target <- thisModule.CreateApplyClass(b.value.referredVariable),
+			target <- thisModule.CreateApplyClass(b.value.collectAllContainedElements() ->append(b.value) -> 
+						select(e | e.oclIsTypeOf(MM_ATL!VariableExp)) -> first().referredVariable),
+			associationName <- b.propertyName
+		)
+}
+
+unique lazy rule CreateAnyMatchClass{
+	from
+		sipe : MM_ATL!SimpleInPatternElement
+	to
+		amc : MM_DSLTrans!AnyMatchClass(
+			className <- sipe.type.name,
+			packageName <- IN_MM!EPackage.allInstancesFrom('IN2') -> select(p|p.eClassifiers -> contains(
+				IN_MM!EClass.allInstancesFrom('IN2') -> select(c|c.name=sipe.type.name) -> first() )) -> first().name,
+			--A MatchClass will have an attribute (object of type MatchAttribute) whenever the attribute appears in one
+			--of the bindings of the OutPatternElements of the rule, being the source the sipe object
+			attribute <- sipe.inPattern.rule.outPattern.elements -> collect(e|e.bindings) ->
+				collect(b|thisModule.collectAllContainedElements(b)).flatten() ->
+					select(ie|ie.oclIsTypeOf(MM_ATL!NavigationOrAttributeCallExp)) ->
+						select(ie|sipe.type.name.attributesInput().includes(ie.name)) -> 
+							select(ie|ie.source.oclIsTypeOf(MM_ATL!VariableExp) and ie.source.referredVariable = sipe) ->
+								--collect(ie|thisModule.CreateMatchAttribute(sipe, ie.name))
+								collect(ie|thisModule.CreateMatchAttribute(Tuple {a = sipe, b = ie.name}))
+		)
+}
+
+unique lazy rule CreateMatchAttribute{
+	from
+		t : TupleType(a : MM_ATL!SimpleInPatternElement, b : String)--,
+--		sipe : MM_ATL!SimpleInPatternElement,
+--		s : String
+	to
+		ma : MM_DSLTrans!MatchAttribute(
+			--attributeName <- s
+			attributeName <- t.b
+		)
+}
+
+--New in SoSyM'16 version. This is to create a MatchAttribute in a
+--ExistsMatchClass whenever there is a navigation in a binding such 
+--as s.family.lastName. In this case, the ExistsMatchClass is Family and
+--s.family is of type Family. This lazy rule receives Tuple{a='Family2Father', b='lastName'}
+unique lazy rule CreateMatchAttributeinExistsMatchClass{
+	from
+		t : TupleType(a : String, b : String)--,
+		--a : String -- name of the rule
+	to
+		ma : MM_DSLTrans!MatchAttribute(
+			attributeName <- t.b	
+		)
+}
+
+unique lazy rule CreateApplyClass{
+	from
+		sope : MM_ATL!SimpleOutPatternElement
+	to
+		ac : MM_DSLTrans!ApplyClass(
+			className <- sope.type.name,
+			packageName <- OUT_MM!EPackage.allInstancesFrom('IN3') -> select(p|p.eClassifiers -> contains(
+				OUT_MM!EClass.allInstancesFrom('IN3') -> select(c|c.name=sope.type.name) -> first() )) -> first().name,
+			-- ApplyAttribute for assigning values to attributes
+			attribute <- sope.bindings -> select(b|sope.type.name.attributesOutput().includes(b.propertyName)) ->
+				collect(b|thisModule.CreateApplyAttribute(b)),
+			--Like in the rule Household2Community, we have to add an ApplyAttribute if backward links are going to be used.
+			--Backward links will be used if there is a Binding whose value is a reference
+			--To this end, we check that there exists a binding whose value is a navigation (i.e., not an attribute nor a simple type)
+			attribute <- if sope.outPattern.rule.oclIsTypeOf(MM_ATL!LazyMatchedRule) --We don't need backward links for lazy rules 
+						 then Sequence{}
+					     else if sope.bindings -> exists(b|not b.value.oclIsKindOf(MM_ATL!PrimitiveExp) and not sope.type.name.attributesOutput().includes(b.propertyName))
+			                  --then thisModule.CreateApplyAttribute4BackwardLinks('root')
+						      then thisModule.CreateApplyAttribute4BackwardLinks(sope, 'solveRef')
+						      else Sequence{}
+							  endif
+						 endif,
+			--Like in the Man and Woman rules, we have to add an ApplyAttribute if backward links are going to be used.
+			--In this case, we have to search that the type of the SIPEs in the rule are used as results of navigations
+			--in the bindings of other rules. For instance, Member and Family are used in binding has of Household2Community
+			attribute <- if sope.outPattern.rule.oclIsTypeOf(MM_ATL!LazyMatchedRule) --We don't need backward links for lazy rules 
+						 then Sequence{}
+						 else if sope.outPattern.rule.inPattern.elements -> exists(ipe | ipe.type.name.appearsInBindingOfAnotherRule(sope.outPattern.rule.name))
+						      --then thisModule.CreateApplyAttribute4BackwardLinks(sope.outPattern.rule.name)
+						      then thisModule.CreateApplyAttribute4BackwardLinks(sope, 'solveRef')
+						      else Sequence{}
+							  endif
+						 endif
+		)
+}
+
+unique lazy rule CreateApplyAttribute4BackwardLinks{
+	from
+		sope : MM_ATL!SimpleOutPatternElement,
+		s : String
+	to
+		aa : MM_DSLTrans!ApplyAttribute(
+			attributeName <- 'ApplyAttribute',
+			attributeValue <- atom
+		),
+		atom : MM_DSLTrans!Atom(
+			value <- s	
+		)
+}
+
+--This rule creates the ApplyAttribute plus the necessary AttributeRef for initializing attributes in bindings.
+--This rule could be improved and be made more generic
+unique lazy rule CreateApplyAttribute{
+	from
+		b : MM_ATL!Binding
+	to
+		aa : MM_DSLTrans!ApplyAttribute(
+			attributeName <- b.propertyName	
+		)
+	do{
+		--This rule takes a SimpleInPatternElement, a Binding and a VariableExp which is within the value part of the Binding.
+		--The referredVariable of the VariableExp is the sipe, and the VariableExp has to have a NavigationOrAttributeCallExp in the 
+		--form sipe.x, where x is an attribute of sipe, and not a reference.
+		--The appliedProperty (NavigationOrAttributeCallExp) of the VariableExp must have no appliedProperty and ParentOperation,
+		--because if it does, then the VariableExp is within a Concat and this has to be create in rule CreateConcat
+		--The rule creates an AttributeRef that is within the ApplyAttribute created from the Binding by rule CreateApplyAttribute,
+		--and which is pointing to the corresponding MatchAttribute, which is an attribute of the AnyMatchClass created from sipe
+		
+		--This block is for substituting the matched rule that was doing what is described above. 
+		--It creates an AttributeRef for the ApplyAttribute created when the Binding "b" was of type "binding <- sipe.x"
+		thisModule.aux <- b.outPatternElement.outPattern.rule.inPattern.elements -> first();
+		for (ve in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp))){
+			if (ve.referredVariable = thisModule.aux
+					and ve.containsSimpleAttribute(thisModule.aux) and ve.notInConcat()){
+				aa.attributeValue <- thisModule.CreateAttributeRef(ve,thisModule.aux);			
+			}
+		}
+		
+		--This block is for creating a Concat with an AttributeRef and an Atom containing a String
+		--when the Binding "b" was of type "binding <- 'someString' + sipe.x"
+		thisModule.sipe <- b.outPatternElement.outPattern.rule.inPattern.elements -> first();
+		for (oce in b.value.collectAllContainedElements() -> append(b.value) -> select(e|e.oclIsTypeOf(MM_ATL!OperatorCallExp)) -> select(e|e.operationName = '+')){
+			for (se in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!StringExp)) -> select(e|e.appliedProperty=oce)){
+				for (nace in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!NavigationOrAttributeCallExp)) -> select(e|e.parentOperation=oce)){
+					for (ve in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) -> select(e|e.appliedProperty=nace and e.referredVariable=thisModule.sipe)){
+						aa.attributeValue <- thisModule.CreateConcat_Atom_AttributeRef(ve,thisModule.aux, se);	
+					}
+				}
+			}
+		}
+		
+		--This block is for creating a Concat with an AttributeRef and an Atom containing a String
+		--when the Binding "b" was of type "binding <- sipe.x + 'someString'"
+		thisModule.sipe <- b.outPatternElement.outPattern.rule.inPattern.elements -> first();
+		for (oce in b.value.collectAllContainedElements() -> append(b.value) -> select(e|e.oclIsTypeOf(MM_ATL!OperatorCallExp)) -> select(e|e.operationName = '+')){
+			for (se in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!StringExp)) -> select(e|e.parentOperation=oce)){
+				for (nace in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!NavigationOrAttributeCallExp)) -> select(e|e.appliedProperty=oce)){
+					for (ve in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) -> select(e|e.appliedProperty=nace and e.referredVariable=thisModule.sipe)){
+						aa.attributeValue <- thisModule.CreateConcat_AttributeRef_Atom(ve,thisModule.aux, se);	
+					}
+				}
+			}
+		}
+		
+		--New in SoSyM16 version
+		--This block is for creating a Concat with two AttributeRef when the Binding 
+		--is of the type "binding <- sipe.x + sipe.y.z"
+		thisModule.sipe <- b.outPatternElement.outPattern.rule.inPattern.elements -> first();
+		thisModule.rName <- b.outPatternElement.outPattern.rule.name;
+		for (oce in b.value.collectAllContainedElements() -> append(b.value) -> select(e|e.oclIsTypeOf(MM_ATL!OperatorCallExp)) -> select(e|e.operationName = '+')){
+			for (nace1 in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!NavigationOrAttributeCallExp)) -> select(e|e.appliedProperty=oce)){
+				for (nace2 in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!NavigationOrAttributeCallExp)) -> select(e|e.parentOperation=oce)){
+					for (ve1 in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) -> select(e|e.appliedProperty = nace1 and e.referredVariable=thisModule.sipe)){
+						for (ve2 in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) -> select(e|e.appliedProperty.appliedProperty = nace2 and e.referredVariable=thisModule.sipe)){
+							aa.attributeValue <- thisModule.CreateConcat_AttributeRef_AttributeRef__sipe1_x__sipe1_y_z(ve1,ve2, thisModule.sipe, thisModule.rName);	
+						}
+					}
+				}
+			}
+		}
+		
+		
+		--This block is for creating a Concat with an AttributeRef and another AttributeRef
+		--when the Binding "b" was of type "binding <- sipe.x + sipe2.y"
+		---I have to check this case with the Household2Community case study
+		if (b.outPatternElement.outPattern.rule.inPattern.elements -> size() = 2){
+			thisModule.sipe1 <- b.outPatternElement.outPattern.rule.inPattern.elements -> first();
+			thisModule.sipe2 <- b.outPatternElement.outPattern.rule.inPattern.elements -> last();
+			for (oce in b.value.collectAllContainedElements() -> append(b.value) -> select(e|e.oclIsTypeOf(MM_ATL!OperatorCallExp)) -> select(e|e.operationName = '+')){
+				for (ve1 in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) -> select(e|e.referredVariable=thisModule.sipe1) -> select(e|e.appliedProperty.appliedProperty=oce)){
+					for (ve2 in b.value.collectAllContainedElements() -> select(e|e.oclIsTypeOf(MM_ATL!VariableExp)) -> select(e|e.referredVariable=thisModule.sipe2) -> select(e|e.appliedProperty.parentOperation=oce)){
+						aa.attributeValue <- thisModule.CreateConcat_AttributeRef_AttributeRef(ve1,thisModule.sipe1,ve2,thisModule.sipe2);	
+					}
+				}
+			}
+		}
+	}
+}
+	
+lazy rule CreateConcat_AttributeRef_AttributeRef{
+	from
+		ve1 : MM_ATL!VariableExp,
+		sipe1 : MM_ATL!SimpleInPatternElement,
+		ve2 : MM_ATL!VariableExp,
+		sipe2 : MM_ATL!SimpleInPatternElement
+	to
+		c : MM_DSLTrans!Concat(
+			leftTerm <- lt,
+			rightTerm <- rt
+		),
+		lt : MM_DSLTrans!AttributeRef(
+			attributeRef <- thisModule.CreateMatchAttribute(Tuple {a = sipe1, b = ve1.appliedProperty.name})--  sipe1, ve1.appliedProperty.name)
+		),
+		rt : MM_DSLTrans!AttributeRef(
+			attributeRef <- thisModule.CreateMatchAttribute(Tuple {a = sipe2, b = ve2.appliedProperty.name})-- sipe2, ve2.appliedProperty.name)
+		)
+}
+
+--New in SoSyM16 version
+--This rule is to create a Concat whose first AttributeRef is going to point an attribute of 
+--the matched element (AnyMatchClass), but the second one is going to point an attribute that appears
+--in an ExistsMatchClass
+lazy rule CreateConcat_AttributeRef_AttributeRef__sipe1_x__sipe1_y_z{
+	from
+		ve1 : MM_ATL!VariableExp,
+		ve2 : MM_ATL!VariableExp,
+		sipe : MM_ATL!SimpleInPatternElement,
+		rName : String
+	to
+		c : MM_DSLTrans!Concat(
+			leftTerm <- lt,
+			rightTerm <- rt
+		),
+		lt : MM_DSLTrans!AttributeRef(
+			attributeRef <- thisModule.CreateMatchAttribute(Tuple {a = sipe, b = ve1.appliedProperty.name})	
+		),
+		rt : MM_DSLTrans!AttributeRef(
+			--attributeRef <- thisModule.CreateMatchAttribute(Tuple {a = sipe, b = ve2.appliedProperty.appliedProperty.name})
+			attributeRef <- thisModule.CreateMatchAttributeinExistsMatchClass(Tuple {a = rName, b = ve2.appliedProperty.appliedProperty.name})
+		)
+}
+
+lazy rule CreateConcat_Atom_AttributeRef{
+	from
+		ve : MM_ATL!VariableExp,
+		sipe : MM_ATL!SimpleInPatternElement,
+		se : MM_ATL!StringExp
+	to
+		c : MM_DSLTrans!Concat(
+			leftTerm <- lt,
+			rightTerm <- rt
+		),
+		lt : MM_DSLTrans!Atom(
+			value <- se.stringSymbol
+		),
+		rt : MM_DSLTrans!AttributeRef(
+			attributeRef <- thisModule.CreateMatchAttribute(Tuple {a = sipe, b = ve.appliedProperty.name}) --sipe, ve.appliedProperty.name)
+		)
+}
+
+lazy rule CreateConcat_AttributeRef_Atom{
+	from
+		ve : MM_ATL!VariableExp,
+		sipe : MM_ATL!SimpleInPatternElement,
+		se : MM_ATL!StringExp
+	to
+		c : MM_DSLTrans!Concat(
+			leftTerm <- lt,
+			rightTerm <- rt
+		),
+		rt : MM_DSLTrans!Atom(
+			value <- se.stringSymbol
+		),
+		lt : MM_DSLTrans!AttributeRef(
+			attributeRef <- thisModule.CreateMatchAttribute(Tuple {a = sipe, b = ve.appliedProperty.name})--sipe, ve.appliedProperty.name)
+		)
+}
+
+lazy rule CreateAttributeRef{
+	from
+		ve : MM_ATL!VariableExp,
+		sipe : MM_ATL!SimpleInPatternElement
+	to
+		ar : MM_DSLTrans!AttributeRef(
+			attributeRef <- thisModule.CreateMatchAttribute(Tuple {a = sipe, b = ve.appliedProperty.name}) --sipe, ve.appliedProperty.name)
+		)
+}
+
+unique lazy rule CreateAnyMatchClassFromNameLazyRule{
+	from
+		lr : MM_ATL!LazyMatchedRule,
+		s : String
+	to
+		amc : MM_DSLTrans!AnyMatchClass(
+			className <- lr.inPattern.elements->first().type.name,
+			packageName <- IN_MM!EPackage.allInstancesFrom('IN2') -> select(p|p.eClassifiers -> contains(
+				IN_MM!EClass.allInstancesFrom('IN2') -> select(c|c.name=lr.inPattern.elements->first().type.name) -> first() )) -> first().name,
+		--A MatchClass will have an attribute (object of type MatchAttribute) whenever the attribute appears in one
+		--of the bindings of the OutPatternElements of the rule, being the source the sipe object
+		attribute <- lr.outPattern.elements -> collect(e|e.bindings) ->
+				collect(b|thisModule.collectAllContainedElements(b)).flatten() ->
+					select(ie|ie.oclIsTypeOf(MM_ATL!NavigationOrAttributeCallExp)) ->
+						select(ie|lr.inPattern.elements->first().type.name.attributesInput().includes(ie.name)) -> 
+							select(ie|ie.source.oclIsTypeOf(MM_ATL!VariableExp) and ie.source.referredVariable = lr.inPattern.elements->first()) ->
+								collect(ie|thisModule.CreateMatchAttribute(Tuple {a = lr.inPattern.elements->first(), b = ie.name}))--lr.inPattern.elements->first(), ie.name))
+		)
+}
+
+unique lazy rule CreateExistsMatchClassFromNameLazyRule{
+	from
+		lr : MM_ATL!LazyMatchedRule,
+		nav : Sequence(String) --This holds a navigation of type Sequence{"Scheduler", "_required"}, and we want to create the ExistsMatchClass for "_required"
+	to
+		emc : MM_DSLTrans!ExistsMatchClass(
+			className <- let cl : String = IN_MM!EClass.allInstancesFrom('IN2') -> select(cl | cl.name = nav->first()) -> first() in
+					cl.eAllReferences -> select(r|r.name = nav->last().substring(2,nav->last().size())) -> first().eReferenceType.name
+		)
+}
+
+lazy rule CreatePositiveMatchAassociation{
+	from 
+		c : MM_DSLTrans!AnyMatchClass,
+		c2 : MM_DSLTrans!AnyMatchClass,
+		name : String
+	to
+		d : MM_DSLTrans!PositiveMatchAssociation(
+			source <- c,
+			target <- c2,
+			associationName <- name
+		)
+}
+
+lazy rule CreateApplyAassociation{
+	from 
+		c : MM_DSLTrans!ApplyClass,
+		c2 : MM_DSLTrans!ApplyClass,
+		name : String
+	to
+		d : MM_DSLTrans!ApplyAssociation(
+			source <- c,
+			target <- c2,
+			associationName <- name
+		)
+}
+
+lazy rule CreateAnyMatchClassFromName{
+	from
+		s : String
+	to
+		amc : MM_DSLTrans!AnyMatchClass(
+			className <- s,
+			packageName <- IN_MM!EPackage.allInstancesFrom('IN2') -> select(p|p.eClassifiers -> contains(
+				IN_MM!EClass.allInstancesFrom('IN2') -> select(c|c.name=s) -> first() )) -> first().name
+		)
+}
+
+lazy rule CreateApplyClassFromName{
+	from
+		s : String
+	to
+		ac : MM_DSLTrans!ApplyClass(
+			className <- s,
+			packageName <- OUT_MM!EPackage.allInstancesFrom('IN3') -> select(p|p.eClassifiers -> contains(
+				OUT_MM!EClass.allInstancesFrom('IN3') -> select(c|c.name=s) -> first() )) -> first().name,
+			attribute <- Sequence{at}
+		),
+		at : MM_DSLTrans!ApplyAttribute(
+			attributeName <- 'ApplyAttribute',
+			attributeValue <- atom
+		),
+		atom : MM_DSLTrans!Atom(
+			value <- 'solveRef'	
+		)
+}
+
+lazy rule CreateBackwardsLink{
+	from
+		amc : MM_DSLTrans!AnyMatchClass,
+		ac : MM_DSLTrans!ApplyClass
+	to
+		pbr : MM_DSLTrans!PositiveBackwardRestriction(
+			sourceClass <- amc,
+			targetClass <- ac
+		)
+}
