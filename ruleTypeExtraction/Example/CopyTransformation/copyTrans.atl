@@ -1,0 +1,50 @@
+-- @path MM=/CopyTransformation/Metamodels/InputMM.ecore
+-- @path MM1=/CopyTransformation/Metamodels/OutputMM.ecore
+
+module copyTrans;
+create OUT : MM1 from IN : MM;
+
+rule P2P{
+	from 
+		p1 : MM!P1
+	to  
+		p2 : MM1!P2(
+			classes <- p1.classes -> select (c | c.oclIsTypeOf(MM!Class11))
+		)
+}
+
+rule C11{
+	from
+		c1 : MM!Class11(
+			c1.oclIsTypeOf(MM!Class11)	
+		)
+	to
+		c2 : MM1!Class21(
+			name <- c1.name
+		)
+}
+
+rule C12{
+	from
+		c1 : MM!Class11(
+			c1.oclIsTypeOf(MM!Class12)	
+		)
+	to
+		c2 : MM1!Class22(
+			name <- c1.name,
+			surname <- c1.surname
+		)
+}
+
+rule C13{
+	from
+		c1 : MM!Class11(
+			c1.oclIsTypeOf(MM!Class13)	
+		)
+	to
+		c2 : MM1!Class23(
+			name <- c1.name,
+			surname <- c1.surname,
+			id <- c1.id
+		)
+}

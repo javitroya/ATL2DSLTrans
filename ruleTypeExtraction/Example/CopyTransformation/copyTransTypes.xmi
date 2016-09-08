@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<ruletypesmm:Trafo xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:ruletypesmm="http://ruletypesmm/1.0" name="copyTrans">
+  <rules name="P2P">
+    <inTypes>src_P1</inTypes>
+    <outTypes>trg_P2</outTypes>
+    <allNavigationPaths>src_P1</allNavigationPaths>
+    <allNavigationPaths>trg_P2</allNavigationPaths>
+    <allNavigationPaths>src_Class11</allNavigationPaths>
+    <allNavigationPaths>trg_P2.classes</allNavigationPaths>
+    <bindingFeatures>trg_P2.classes</bindingFeatures>
+    <allFootPrints>src_P1</allFootPrints>
+    <allFootPrints>trg_P2</allFootPrints>
+    <allFootPrints>src_Class11</allFootPrints>
+    <allFootPrints>trg_P2.classes</allFootPrints>
+    <allFootPrints>trg_Class21</allFootPrints>
+    <outFeatures>src_Class11</outFeatures>
+  </rules>
+  <rules name="C11">
+    <inFeatures>src_Class11</inFeatures>
+    <inTypes>src_Class11</inTypes>
+    <outTypes>trg_Class21</outTypes>
+    <allNavigationPaths>src_Class11</allNavigationPaths>
+    <allNavigationPaths>trg_Class21</allNavigationPaths>
+    <allNavigationPaths>src_Class11.name</allNavigationPaths>
+    <allNavigationPaths>trg_Class21.name</allNavigationPaths>
+    <bindingFeatures>trg_Class21.name</bindingFeatures>
+    <allFootPrints>src_Class11</allFootPrints>
+    <allFootPrints>trg_Class21</allFootPrints>
+    <allFootPrints>src_Class11.name</allFootPrints>
+    <allFootPrints>trg_Class21.name</allFootPrints>
+    <outFeatures>src_Class11.name</outFeatures>
+  </rules>
+  <rules name="C12">
+    <inFeatures>src_Class12</inFeatures>
+    <inTypes>src_Class11</inTypes>
+    <outTypes>trg_Class22</outTypes>
+    <allNavigationPaths>src_Class11</allNavigationPaths>
+    <allNavigationPaths>src_Class12</allNavigationPaths>
+    <allNavigationPaths>trg_Class22</allNavigationPaths>
+    <allNavigationPaths>src_Class11.name</allNavigationPaths>
+    <allNavigationPaths>src_Class11.surname</allNavigationPaths>
+    <allNavigationPaths>trg_Class22.name</allNavigationPaths>
+    <allNavigationPaths>trg_Class22.surname</allNavigationPaths>
+    <bindingFeatures>trg_Class22.name</bindingFeatures>
+    <bindingFeatures>trg_Class22.surname</bindingFeatures>
+    <allFootPrints>src_Class11</allFootPrints>
+    <allFootPrints>src_Class12</allFootPrints>
+    <allFootPrints>trg_Class22</allFootPrints>
+    <allFootPrints>src_Class11.name</allFootPrints>
+    <allFootPrints>trg_Class22.name</allFootPrints>
+    <allFootPrints>trg_Class22.surname</allFootPrints>
+    <outFeatures>src_Class11.name</outFeatures>
+    <outFeatures>src_Class11.surname</outFeatures>
+  </rules>
+  <rules name="C13">
+    <inFeatures>src_Class13</inFeatures>
+    <inTypes>src_Class11</inTypes>
+    <outTypes>trg_Class23</outTypes>
+    <allNavigationPaths>src_Class11</allNavigationPaths>
+    <allNavigationPaths>src_Class13</allNavigationPaths>
+    <allNavigationPaths>trg_Class23</allNavigationPaths>
+    <allNavigationPaths>src_Class11.name</allNavigationPaths>
+    <allNavigationPaths>src_Class11.surname</allNavigationPaths>
+    <allNavigationPaths>src_Class11.id</allNavigationPaths>
+    <allNavigationPaths>trg_Class23.name</allNavigationPaths>
+    <allNavigationPaths>trg_Class23.surname</allNavigationPaths>
+    <allNavigationPaths>trg_Class23.id</allNavigationPaths>
+    <bindingFeatures>trg_Class23.name</bindingFeatures>
+    <bindingFeatures>trg_Class23.surname</bindingFeatures>
+    <bindingFeatures>trg_Class23.id</bindingFeatures>
+    <allFootPrints>src_Class11</allFootPrints>
+    <allFootPrints>src_Class13</allFootPrints>
+    <allFootPrints>trg_Class23</allFootPrints>
+    <allFootPrints>src_Class11.name</allFootPrints>
+    <allFootPrints>trg_Class23.name</allFootPrints>
+    <allFootPrints>trg_Class23.surname</allFootPrints>
+    <allFootPrints>trg_Class23.id</allFootPrints>
+    <outFeatures>src_Class11.name</outFeatures>
+    <outFeatures>src_Class11.surname</outFeatures>
+    <outFeatures>src_Class11.id</outFeatures>
+  </rules>
+  <mms inputMM="inputmm"/>
+  <mms outputMM="outputmm"/>
+</ruletypesmm:Trafo>
